@@ -1,0 +1,138 @@
+{
+  "projectType": "saas",
+  "projectName": "TCP Streamer",
+  "projectDescription": "A lightweight, cross-platform audio streaming application built with Tauri that streams system audio over TCP with minimal latency.",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/audio-streaming",
+              "features/silence-detection",
+              "features/adaptive-buffering",
+              "features/profiles"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/audio-settings",
+              "configuration/network-settings",
+              "configuration/automation",
+              "configuration/advanced"
+            ]
+          },
+          {
+            "group": "Platform Guides",
+            "pages": [
+              "platforms/windows",
+              "platforms/macos",
+              "platforms/linux"
+            ]
+          },
+          {
+            "group": "Use Cases",
+            "pages": [
+              "use-cases/snapcast",
+              "use-cases/multi-room-audio",
+              "use-cases/remote-monitoring"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/connection-issues",
+              "troubleshooting/audio-problems",
+              "troubleshooting/performance"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Technical Details",
+            "pages": [
+              "architecture/overview",
+              "architecture/audio-pipeline",
+              "architecture/network-stack",
+              "architecture/buffering-system"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/building",
+              "development/contributing",
+              "development/project-structure"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "API",
+            "pages": [
+              "api/commands",
+              "api/events",
+              "api/configuration"
+            ]
+          },
+          {
+            "group": "Changelog",
+            "pages": [
+              "changelog/v1-9-0",
+              "changelog/v1-8-4",
+              "changelog/v1-6-0"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time TCP audio streaming with sub-millisecond timing precision",
+    "Smart silence detection with RMS-based bandwidth optimization",
+    "Adaptive buffer sizing based on network jitter",
+    "Multi-profile configuration management",
+    "Cross-platform system audio capture (WASAPI, CoreAudio, ALSA)",
+    "Auto-reconnect with exponential backoff",
+    "System tray integration with background operation",
+    "Real-time statistics and network quality monitoring",
+    "QoS tagging (DSCP/TOS) support",
+    "Token bucket pacing algorithm for drift-free transmission"
+  ],
+  "publicApiSurface": [
+    "get_input_devices() - Lists available audio input devices",
+    "start_stream() - Starts audio streaming with configuration",
+    "stop_stream() - Stops active audio stream",
+    "get_os_type() - Returns platform information",
+    "Event: log-event - Real-time logging events",
+    "Event: stats-event - Stream statistics (bitrate, uptime, bytes sent)",
+    "Event: quality-event - Network quality metrics (jitter, latency, buffer health)",
+    "Event: buffer-resize-event - Adaptive buffer size changes",
+    "Configuration: Sample rates (44.1kHz, 48kHz)",
+    "Configuration: Buffer sizes (256, 512, 1024, 2048 samples)",
+    "Configuration: Ring buffer duration (2000-15000ms)",
+    "Configuration: Network presets (Ethernet, WiFi, WiFi Poor)",
+    "Configuration: DSCP strategies (VoIP, Low Delay, Throughput)"
+  ]
+}
