@@ -1,0 +1,255 @@
+---
+title: Audio Settings
+description: Configure audio input devices, sample rates, buffer sizes, and loopback mode for optimal streaming performance
+---
+
+## Overview
+
+Audio settings control how TCP Streamer captures audio from your system. These settings directly impact audio quality, latency, and system resource usage.
+
+## Input Device Selection
+
+TCP Streamer scans all available audio hosts (WASAPI, MME, CoreAudio, ALSA, PulseAudio) to detect input devices.
+
+### Standard Input Devices
+
+Select any physical or virtual audio input device:
+
+- Physical microphones
+- Line-in connections
+- Virtual audio cables (VB-Audio Cable, BlackHole)
+- Audio interfaces
+
+<Info>
+**macOS Users**: Install [BlackHole](https://github.com/ExistentialAudio/BlackHole) or [Loopback](https://rogueamoeba.com/loopback/) to capture system audio.
+</Info>
+
+### Windows Loopback Mode
+
+Windows users can enable **WASAPI Loopback** to capture system audio directly without virtual cables.
+
+<Steps>
+  <Step title="Enable Loopback">
+    Check the **"Enable Loopback (Windows)"** checkbox
+  </Step>
+  <Step title="Select Output Device">
+    Choose the output device (speakers/headphones) you want to capture from
+  </Step>
+  <Step title="Requirements">
+    Physical speakers or headphones must be plugged in for loopback to work
+  </Step>
+</Steps>
+
+<Warning>
+WASAPI Loopback is more sensitive to network conditions than virtual audio cables. The application automatically uses larger buffers (8000ms default) for stability.
+</Warning>
+
+## Sample Rate
+
+The number of audio samples captured per second, measured in Hertz (Hz).
+
+<ParamField path="sample_rate" type="integer" default="48000">
+  Audio sample rate in Hz
+</ParamField>
+
+| Sample Rate | Use Case | Bitrate (Stereo) |
+|-------------|----------|------------------|
+| **44100 Hz** | CD-quality audio, music playback | 1411 kbps |
+| **48000 Hz** | Modern standard, video/broadcast (recommended) | 1536 kbps |
+
+### Recommendations
+
+- **48 kHz**: Recommended for most use cases (modern standard)
+- **44.1 kHz**: Use if your source content is CD-quality music
+
+<Info>
+Higher sample rates do NOT improve quality beyond the source material. Match the sample rate to your content for best results.
+</Info>
+
+## Buffer Size
+
+The hardware audio buffer size in samples. This controls the latency between audio capture and processing.
+
+<ParamField path="buffer_size" type="integer" default="1024">
+  Hardware buffer size in samples
+</ParamField>
+
+| Buffer Size | Latency (48 kHz) | Use Case |
+|-------------|------------------|----------|
+| **256** | 5.3 ms | Ultra-low latency, high CPU usage |
+| **512** | 10.7 ms | Low latency, balanced |
+| **1024** | 21.3 ms | Balanced (recommended) |
+| **2048** | 42.7 ms | High stability, lower CPU usage |
+
+### Trade-offs
+
+**Smaller buffers (256-512)**:
+- Lower latency
+- Higher CPU usage
+- More sensitive to system load
+- May cause audio dropouts on slower systems
+
+**Larger buffers (1024-2048)**:
+- Higher latency
+- Lower CPU usage
+- More stable on loaded systems
+- Better for WiFi connections
+
+<Tip>
+For most users, **1024 samples** provides the best balance between latency and stability.
+</Tip>
+
+## Ring Buffer Duration
+
+The size of the internal ring buffer that absorbs network jitter, measured in milliseconds.
+
+<ParamField path="ring_buffer_duration" type="integer" default="4000">
+  Ring buffer duration in milliseconds (2000-15000)
+</ParamField>
+
+| Duration | Memory Usage | Use Case |
+|----------|--------------|----------|
+| **2000 ms** | ~0.6 MB | Wired connections, low jitter |
+| **4000 ms** | ~1.2 MB | WiFi connections (recommended) |
+| **8000 ms** | ~2.3 MB | Poor WiFi, WASAPI Loopback |
+| **15000 ms** | ~4.3 MB | Extreme conditions, maximum stability |
+
+### Smart Buffer Sizing by Device Type
+
+TCP Streamer automatically adjusts buffer defaults based on device type:
+
+#### WASAPI Loopback (Windows)
+
+- **Base ring buffer**: 8000ms
+- **Adaptive range**: 4000-12000ms
+- **Best latency**: ~4 seconds (wired network)
+- **Worst latency**: ~12 seconds (WiFi laptop)
+
+<Info>
+Larger buffers are required to handle WiFi jitter, laptop CPU throttling, and WASAPI timing variability.
+</Info>
+
+#### Standard Input / VB Audio Cable
+
+- **Base ring buffer**: 5000ms
+- **Adaptive range**: 2000-6000ms
+- **Best latency**: ~2 seconds (wired network)
+- **Worst latency**: ~6 seconds (WiFi)
+
+### How It Works
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Audio     │────▶│ Ring Buffer  │────▶│  Network    │
+│  Callback   │     │  (Jitter     │     │  Thread     │
+│  (Producer) │     │  Absorber)   │     │ (Consumer)  │
+└─────────────┘     └──────────────┘     └─────────────┘
+```
+
+The ring buffer acts as a cushion between audio capture and network transmission:
+
+1. Audio callbacks push samples into the buffer (producer)
+2. Network thread reads from buffer at precise intervals (consumer)
+3. Buffer absorbs timing differences caused by network jitter
+
+<Warning>
+If the buffer fills completely (overflow), audio will be dropped. If it empties completely (underrun), silence will be sent.
+</Warning>
+
+## Configuration Examples
+
+### High-Fidelity Music (Wired)
+
+```json
+{
+  "sample_rate": 48000,
+  "buffer_size": 512,
+  "ring_buffer_duration": 2000
+}
+```
+
+Lowest latency with excellent stability on wired connections.
+
+### Whole-Home Audio (WiFi)
+
+```json
+{
+  "sample_rate": 48000,
+  "buffer_size": 1024,
+  "ring_buffer_duration": 4000
+}
+```
+
+Balanced configuration for multi-room sync over WiFi.
+
+### Challenging Environment (Poor WiFi)
+
+```json
+{
+  "sample_rate": 44100,
+  "buffer_size": 2048,
+  "ring_buffer_duration": 8000
+}
+```
+
+Maximum stability for unreliable network conditions.
+
+### Windows Loopback (WiFi Laptop)
+
+```json
+{
+  "sample_rate": 48000,
+  "buffer_size": 1024,
+  "ring_buffer_duration": 8000,
+  "is_loopback": true
+}
+```
+
+Automatically uses larger buffers for WASAPI loopback stability.
+
+## Troubleshooting
+
+### Audio Stuttering
+
+**Symptoms**: Choppy audio, gaps, pops
+
+**Solutions**:
+- Increase ring buffer duration
+- Increase hardware buffer size
+- Enable adaptive buffer (see [Advanced Settings](/configuration/advanced))
+- Use wired connection instead of WiFi
+
+### High CPU Usage
+
+**Symptoms**: System slowdown, fan noise
+
+**Solutions**:
+- Increase buffer size to 2048
+- Lower sample rate to 44.1 kHz
+- Disable other CPU-intensive applications
+
+### Device Not Found
+
+**Symptoms**: Input device doesn't appear in dropdown
+
+**Solutions**:
+- **macOS**: Grant microphone permissions (System Settings → Privacy & Security)
+- **Windows**: Ensure device is enabled in Sound settings
+- **Linux**: Check ALSA/PulseAudio/PipeWire configuration
+- Restart the application after connecting new devices
+
+### WASAPI Loopback Dropouts
+
+**Symptoms**: Frequent audio gaps when using Windows loopback
+
+**Solutions**:
+- Enable adaptive buffer (see [Advanced Settings](/configuration/advanced))
+- Increase ring buffer to 10000-12000ms
+- Use wired connection
+- Consider using VB Audio Cable instead for more consistent performance
+
+## Related Settings
+
+- [Network Settings](/configuration/network-settings) - Configure chunk size and network optimization
+- [Advanced Settings](/configuration/advanced) - Enable adaptive buffer for automatic adjustments
+- [Automation](/configuration/automation) - Set up auto-start and auto-reconnect

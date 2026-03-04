@@ -1,0 +1,407 @@
+---
+title: Installation
+description: Platform-specific installation instructions for Windows, macOS, and Linux
+---
+
+## Download TCP Streamer
+
+TCP Streamer is distributed as pre-built binaries for all major platforms. Download the latest release from the official GitHub repository:
+
+<Card title="Download Latest Release" icon="github" href="https://github.com/NaturalDevCR/TCP-Streamer/releases">
+  Download TCP Streamer v1.9.0 or later from GitHub Releases
+</Card>
+
+## Platform-Specific Installation
+
+<Tabs>
+  <Tab title="Windows">
+    ### Windows Installation
+
+    TCP Streamer is available in two formats for Windows:
+
+    <Steps>
+      <Step title="Download Installer">
+        Download either:
+        - `tcp-streamer_1.9.0_x64.msi` (recommended - MSI installer)
+        - `tcp-streamer_1.9.0_x64-setup.exe` (EXE installer)
+      </Step>
+
+      <Step title="Run Installer">
+        Double-click the downloaded file and follow the installation wizard.
+        
+        <Note>
+          You may see a Windows SmartScreen warning. Click "More info" → "Run anyway" to proceed.
+        </Note>
+      </Step>
+
+      <Step title="Launch Application">
+        After installation, launch TCP Streamer from:
+        - Start Menu → TCP Streamer
+        - Desktop shortcut (if created during installation)
+      </Step>
+
+      <Step title="Grant Permissions">
+        Windows may prompt for microphone permissions. Click "Allow" to enable audio capture.
+      </Step>
+    </Steps>
+
+    ### Windows-Specific Features
+
+    **WASAPI Loopback** - Windows users can capture system audio directly without virtual audio cables:
+
+    1. In TCP Streamer, check **"Enable Loopback (Windows)"**
+    2. Ensure speakers or headphones are plugged in (required for WASAPI loopback)
+    3. Select your audio output device as the input source
+
+    <Warning>
+      WASAPI loopback requires an active audio output device. If no speakers/headphones are connected, loopback capture will not work.
+    </Warning>
+
+    **Alternative: Virtual Audio Cable**
+
+    For more advanced routing, install [VB-AUDIO Cable](https://vb-audio.com/Cable/) to create virtual audio devices.
+
+    ### Updating on Windows
+
+    To update TCP Streamer:
+    1. Download the new installer
+    2. Run the installer - it will automatically detect and upgrade the existing installation
+    3. Your settings and profiles are preserved during the upgrade
+  </Tab>
+
+  <Tab title="macOS">
+    ### macOS Installation
+
+    TCP Streamer is distributed as a standard macOS application bundle:
+
+    <Steps>
+      <Step title="Download DMG">
+        Download `tcp-streamer_1.9.0_universal.dmg` (supports both Intel and Apple Silicon)
+      </Step>
+
+      <Step title="Open DMG File">
+        Double-click the downloaded `.dmg` file to mount the disk image
+      </Step>
+
+      <Step title="Install Application">
+        Drag the **TCP Streamer** icon to the **Applications** folder
+      </Step>
+
+      <Step title="Launch Application">
+        Open TCP Streamer from:
+        - Applications folder
+        - Spotlight Search (⌘ + Space, type "TCP Streamer")
+        - Launchpad
+      </Step>
+
+      <Step title="First Launch">
+        On first launch, macOS may show a security warning:
+        
+        1. Click **"Open"** if prompted
+        2. If blocked, go to **System Settings → Privacy & Security**
+        3. Click **"Open Anyway"** next to the TCP Streamer message
+      </Step>
+
+      <Step title="Grant Permissions">
+        Grant microphone access when prompted:
+        - **System Settings → Privacy & Security → Microphone**
+        - Enable the checkbox for TCP Streamer
+      </Step>
+    </Steps>
+
+    ### Removing Quarantine Attribute
+
+    If you see "App is damaged and can't be opened", remove the quarantine attribute:
+
+    ```bash
+    xattr -cr /Applications/TCP\ Streamer.app
+    ```
+
+    <Note>
+      This is a security feature of macOS when downloading apps from the internet. The command above is safe and tells macOS to trust the application.
+    </Note>
+
+    ### System Audio Capture on macOS
+
+    macOS does not have built-in loopback like Windows. To capture system audio, install:
+
+    **BlackHole** (Free, Open Source)
+    ```bash
+    brew install blackhole-2ch
+    ```
+    [GitHub: ExistentialAudio/BlackHole](https://github.com/ExistentialAudio/BlackHole)
+
+    **Or use Loopback** (Commercial)
+    - [Rogue Amoeba Loopback](https://rogueamoeba.com/loopback/)
+
+    ### Updating on macOS
+
+    1. Download the new `.dmg` file
+    2. Replace the old app in Applications folder with the new version
+    3. Settings are preserved in `~/Library/Application Support/com.jdavidoa91.tcp-streamer/`
+  </Tab>
+
+  <Tab title="Linux">
+    ### Linux Installation
+
+    TCP Streamer is available in multiple formats for Linux distributions:
+
+    <Tabs>
+      <Tab title="Debian/Ubuntu (.deb)">
+        ### Installing on Debian/Ubuntu
+
+        <Steps>
+          <Step title="Download Package">
+            Download `tcp-streamer_1.9.0_amd64.deb`
+          </Step>
+
+          <Step title="Install with APT">
+            Open terminal and navigate to the download directory:
+            
+            ```bash
+            cd ~/Downloads
+            sudo apt install ./tcp-streamer_1.9.0_amd64.deb
+            ```
+
+            <Note>
+              The `./` prefix is important - it tells apt to install from the current directory.
+            </Note>
+          </Step>
+
+          <Step title="Launch Application">
+            Launch from:
+            - Application menu
+            - Terminal: `tcp-streamer`
+          </Step>
+        </Steps>
+
+        ### Updating Debian/Ubuntu Installation
+
+        **Important**: Do not double-click the new `.deb` file to update. Use the terminal:
+
+        ```bash
+        cd ~/Downloads
+        sudo apt install ./tcp-streamer_*.deb
+        ```
+
+        This command will correctly detect the installed version and upgrade in-place, preserving your settings.
+
+        <Warning>
+          If you see "Conflicts with existing package", remove the old version first:
+          ```bash
+          sudo apt remove tcp-streamer
+          sudo apt install ./tcp-streamer_*.deb
+          ```
+        </Warning>
+      </Tab>
+
+      <Tab title="AppImage">
+        ### Using AppImage
+
+        AppImage is a universal format that works on most Linux distributions without installation:
+
+        <Steps>
+          <Step title="Download AppImage">
+            Download `tcp-streamer_1.9.0_amd64.AppImage`
+          </Step>
+
+          <Step title="Make Executable">
+            ```bash
+            chmod +x tcp-streamer_1.9.0_amd64.AppImage
+            ```
+          </Step>
+
+          <Step title="Run Application">
+            ```bash
+            ./tcp-streamer_1.9.0_amd64.AppImage
+            ```
+          </Step>
+        </Steps>
+
+        <Note>
+          AppImage requires FUSE to run. Most modern distributions have it pre-installed. If not:
+          ```bash
+          sudo apt install fuse libfuse2
+          ```
+        </Note>
+      </Tab>
+    </Tabs>
+
+    ### System Dependencies
+
+    Most dependencies are bundled, but ensure you have audio system libraries:
+
+    **Ubuntu/Debian:**
+    ```bash
+    sudo apt install libasound2 libpulse0
+    ```
+
+    **Fedora:**
+    ```bash
+    sudo dnf install alsa-lib pulseaudio-libs
+    ```
+
+    **Arch:**
+    ```bash
+    sudo pacman -S alsa-lib libpulse
+    ```
+
+    ### Audio System Configuration
+
+    TCP Streamer works with both ALSA and PulseAudio:
+
+    **Check PulseAudio status:**
+    ```bash
+    pulseaudio --check
+    echo $?  # Should output 0 if running
+    ```
+
+    **List available devices:**
+    ```bash
+    arecord -L  # ALSA devices
+    pactl list sources  # PulseAudio sources
+    ```
+
+    ### System Audio Capture on Linux
+
+    To capture system audio, use PulseAudio Monitor:
+
+    1. Install PulseAudio Volume Control:
+       ```bash
+       sudo apt install pavucontrol
+       ```
+
+    2. Launch TCP Streamer and start streaming
+    3. Open `pavucontrol` → **Recording** tab
+    4. Set TCP Streamer to capture from **Monitor of [your output device]**
+
+    ### Autostart on Linux
+
+    TCP Streamer includes autostart support. Enable it in the application settings, and it will create a systemd user service or desktop entry.
+  </Tab>
+</Tabs>
+
+## Building from Source
+
+For developers or users who want to build from source:
+
+<Steps>
+  <Step title="Install Prerequisites">
+    **Required Tools:**
+    - [Node.js](https://nodejs.org/) v18 or later
+    - [Rust](https://www.rust-lang.org/) (latest stable)
+
+    **Platform-Specific Dependencies:**
+
+    <Tabs>
+      <Tab title="Ubuntu/Debian">
+        ```bash
+        sudo apt install libgtk-3-dev libwebkit2gtk-4.0-dev \
+          libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+        ```
+      </Tab>
+      
+      <Tab title="macOS">
+        ```bash
+        xcode-select --install
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        Install [Microsoft Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/downloads/)
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/NaturalDevCR/TCP-Streamer.git
+    cd TCP-Streamer
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Run Development Build">
+    ```bash
+    npm run tauri dev
+    ```
+    
+    This launches TCP Streamer in development mode with hot reload.
+  </Step>
+
+  <Step title="Build Production Binary">
+    ```bash
+    npm run tauri build
+    ```
+
+    Built applications will be in:
+    - `src-tauri/target/release/bundle/`
+  </Step>
+</Steps>
+
+## Verifying Installation
+
+After installation, verify TCP Streamer is working:
+
+<Steps>
+  <Step title="Launch Application">
+    Open TCP Streamer from your applications menu or system tray
+  </Step>
+
+  <Step title="Check Audio Devices">
+    The application should automatically detect and list your audio input devices
+  </Step>
+
+  <Step title="Check Version">
+    Version information is displayed in the application UI (should be 1.9.0 or later)
+  </Step>
+
+  <Step title="Test System Tray">
+    Minimize the application - it should appear in your system tray and remain accessible
+  </Step>
+</Steps>
+
+## Troubleshooting Installation
+
+### Windows: SmartScreen Warning
+
+**Issue**: "Windows protected your PC" warning
+
+**Solution**: Click "More info" → "Run anyway". This warning appears for applications without an expensive code signing certificate.
+
+### macOS: "Cannot be opened" Error
+
+**Issue**: "TCP Streamer cannot be opened because the developer cannot be verified"
+
+**Solution**:
+1. Try: System Settings → Privacy & Security → Click "Open Anyway"
+2. Or run: `xattr -cr /Applications/TCP\ Streamer.app`
+
+### Linux: Missing Dependencies
+
+**Issue**: Application fails to launch with library errors
+
+**Solution**: Install audio system libraries:
+```bash
+sudo apt install libasound2 libpulse0 libgtk-3-0
+```
+
+### Permission Denied
+
+**Issue**: Cannot access audio devices
+
+**Solution**: Grant microphone permissions in your system settings:
+- **macOS**: System Settings → Privacy & Security → Microphone
+- **Windows**: Settings → Privacy → Microphone
+- **Linux**: User should be in `audio` group: `sudo usermod -aG audio $USER` (logout required)
+
+## Next Steps
+
+<Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+  Now that you have TCP Streamer installed, learn how to configure and start streaming audio
+</Card>

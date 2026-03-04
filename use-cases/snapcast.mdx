@@ -1,0 +1,306 @@
+---
+title: 'Snapcast Integration'
+description: 'Stream audio from TCP Streamer to Snapcast servers for synchronized multi-room audio playback'
+---
+
+## Overview
+
+Snapcast is a popular open-source server-client architecture for synchronized multi-room audio. TCP Streamer integrates seamlessly with Snapcast by streaming raw PCM audio over TCP to a Snapcast server listening on port 4953.
+
+<Info>
+**Why Snapcast + TCP Streamer?**
+
+This combination lets you stream audio from any computer (Windows, macOS, or Linux) to multiple synchronized speakers throughout your home without expensive proprietary hardware.
+</Info>
+
+## Architecture
+
+```
+┌─────────────────┐      ┌──────────────────┐      ┌────────────────────┐
+│  TCP Streamer   │      │  Snapcast Server │      │  Snapcast Clients  │
+│  (Your PC)      │─────▶│  192.168.1.100   │─────▶│  (Multiple Rooms)  │
+│  Audio Source   │ TCP  │  Port 4953       │ WiFi │  • Living Room     │
+└─────────────────┘      └──────────────────┘      │  • Kitchen         │
+                                                    │  • Bedroom         │
+                                                    └────────────────────┘
+```
+
+**Data Flow:**
+1. TCP Streamer captures audio from your computer (system audio via loopback or microphone)
+2. Audio is encoded as raw PCM (16-bit stereo) and buffered
+3. Data is transmitted over TCP to Snapcast server on port 4953
+4. Snapcast server distributes audio to all connected clients with microsecond synchronization
+5. All speakers play audio simultaneously with perfect sync
+
+## Setting Up Snapcast Server
+
+<Steps>
+  <Step title="Install Snapcast Server">
+    Install Snapcast on your server machine (Raspberry Pi, Linux server, or any always-on device):
+
+    **Debian/Ubuntu:**
+    ```bash
+    # Add Snapcast repository
+    wget -O - https://github.com/badaix/snapcast/releases/download/v0.27.0/snapserver_0.27.0-1_amd64.deb
+    sudo dpkg -i snapserver_0.27.0-1_amd64.deb
+    ```
+
+    **Raspberry Pi:**
+    ```bash
+    wget -O - https://github.com/badaix/snapcast/releases/download/v0.27.0/snapserver_0.27.0-1_armhf.deb
+    sudo dpkg -i snapserver_0.27.0-1_armhf.deb
+    ```
+
+    **macOS (Homebrew):**
+    ```bash
+    brew install snapcast
+    ```
+  </Step>
+
+  <Step title="Configure Snapcast for TCP Input">
+    Edit the Snapcast server configuration to accept TCP streams:
+
+    ```bash
+    sudo nano /etc/snapserver.conf
+    ```
+
+    Add or modify the `source` line:
+    ```ini
+    [stream]
+    source = tcp://0.0.0.0:4953?name=TCPStreamer&sampleformat=48000:16:2&codec=pcm
+    ```
+
+    **Parameters explained:**
+    - `tcp://0.0.0.0:4953` - Listen on all interfaces, port 4953
+    - `name=TCPStreamer` - Stream name displayed in Snapcast clients
+    - `sampleformat=48000:16:2` - 48 kHz sample rate, 16-bit depth, 2 channels (stereo)
+    - `codec=pcm` - Raw PCM audio (no compression)
+
+    <Note>
+    If you're using 44.1 kHz in TCP Streamer, change `48000` to `44100` in the configuration.
+    </Note>
+  </Step>
+
+  <Step title="Start Snapcast Server">
+    ```bash
+    sudo systemctl start snapserver
+    sudo systemctl enable snapserver  # Auto-start on boot
+    ```
+
+    Check server status:
+    ```bash
+    sudo systemctl status snapserver
+    ```
+  </Step>
+
+  <Step title="Note Your Server IP Address">
+    Find your server's local IP address:
+
+    **Linux:**
+    ```bash
+    ip addr show | grep "inet "
+    ```
+
+    **macOS:**
+    ```bash
+    ifconfig | grep "inet "
+    ```
+
+    Example output: `192.168.1.100`
+  </Step>
+</Steps>
+
+## Configuring TCP Streamer
+
+<Steps>
+  <Step title="Open TCP Streamer">
+    Launch TCP Streamer on your computer (the audio source).
+  </Step>
+
+  <Step title="Select Audio Input Device">
+    Choose your audio source:
+
+    **For System Audio (Music/Movies/Games):**
+    - **Windows**: Enable "Enable Loopback (Windows)" checkbox to capture system audio
+    - **macOS**: Install [BlackHole](https://github.com/ExistentialAudio/BlackHole) and select it as input
+    - **Linux**: Use PulseAudio monitor device
+
+    **For Microphone/External Input:**
+    - Select your microphone or audio interface from the dropdown
+  </Step>
+
+  <Step title="Enter Snapcast Server Details">
+    Configure the TCP destination:
+
+    - **Server IP**: `192.168.1.100` (your Snapcast server's IP)
+    - **Port**: `4953` (Snapcast default TCP port)
+  </Step>
+
+  <Step title="Configure Audio Settings">
+    Match the Snapcast server configuration:
+
+    - **Sample Rate**: `48 kHz` (must match Snapcast server)
+    - **Buffer Size**: `1024` (balanced, or `512` for lower latency)
+    - **Ring Buffer**: `4000ms` (WiFi) or `2000ms` (Ethernet)
+
+    <Tip>
+    Enable **Adaptive Buffer** to automatically adjust for network jitter. Set Min: 2000ms, Max: 10000ms.
+    </Tip>
+  </Step>
+
+  <Step title="Enable Automation (Optional)">
+    For a "set it and forget it" setup:
+
+    - ✅ **Auto-start on launch** - Start TCP Streamer when computer boots
+    - ✅ **Auto-stream** - Begin streaming immediately
+    - ✅ **Auto-reconnect** - Reconnect if connection drops
+  </Step>
+
+  <Step title="Start Streaming">
+    Click **Start Streaming**. Monitor the connection status and statistics in the UI.
+
+    You should see:
+    - Status: "Connected"
+    - Bitrate: ~1536 kbps (for 48 kHz stereo)
+    - Network Quality: "Excellent" or "Good"
+  </Step>
+</Steps>
+
+## Example Configuration Profile
+
+Create a dedicated profile for your Snapcast setup:
+
+**Profile Name:** `Home-Snapcast`
+
+| Setting | Value |
+|---------|-------|
+| **Server IP** | 192.168.1.100 |
+| **Port** | 4953 |
+| **Sample Rate** | 48 kHz |
+| **Buffer Size** | 1024 |
+| **Ring Buffer** | 4000ms |
+| **Adaptive Buffer** | Enabled (2000-10000ms) |
+| **Silence Detection** | Enabled (threshold: 50, timeout: 30s) |
+| **Auto-start** | ✅ Enabled |
+| **Auto-stream** | ✅ Enabled |
+| **Auto-reconnect** | ✅ Enabled |
+
+## Advanced: Multiple Snapcast Sources
+
+Snapcast supports multiple audio sources simultaneously. You can stream from multiple computers:
+
+**Snapcast Configuration:**
+```ini
+[stream]
+source = tcp://0.0.0.0:4953?name=LivingRoom&sampleformat=48000:16:2
+source = tcp://0.0.0.0:4954?name=Bedroom&sampleformat=48000:16:2
+```
+
+**TCP Streamer Configuration:**
+- **Living Room PC**: Connect to `192.168.1.100:4953`
+- **Bedroom PC**: Connect to `192.168.1.100:4954`
+
+Clients can then select which stream to play using the Snapcast app.
+
+## Network Optimization for Snapcast
+
+### Wired Ethernet (Best)
+
+**Recommended Settings:**
+- **Network Preset**: Ethernet
+- **Ring Buffer**: 2000ms
+- **Adaptive Buffer**: 1000-4000ms
+- **Expected Latency**: ~2 seconds
+
+### WiFi (Good)
+
+**Recommended Settings:**
+- **Network Preset**: WiFi
+- **Ring Buffer**: 4000ms
+- **Adaptive Buffer**: 3000-10000ms
+- **Expected Latency**: ~4-6 seconds
+
+### WiFi Poor Signal (Acceptable)
+
+**Recommended Settings:**
+- **Network Preset**: WiFi (Poor Signal)
+- **Ring Buffer**: 8000ms
+- **Adaptive Buffer**: 5000-15000ms
+- **Expected Latency**: ~8-12 seconds
+
+<Warning>
+Higher latency means audio plays several seconds after it's captured. This is fine for music playback but unsuitable for gaming or interactive applications.
+</Warning>
+
+## Troubleshooting
+
+### Connection Failed
+
+**Problem**: TCP Streamer shows "Failed to connect"
+
+**Solutions**:
+- Verify Snapcast server is running: `sudo systemctl status snapserver`
+- Check firewall allows port 4953: `sudo ufw allow 4953/tcp`
+- Ping the server: `ping 192.168.1.100`
+- Try connecting from the server itself: Use IP `127.0.0.1` on the server machine
+
+### Audio Stuttering/Dropouts
+
+**Problem**: Audio cuts out intermittently
+
+**Solutions**:
+- Increase **Ring Buffer** to 6000ms or higher
+- Enable **Adaptive Buffer** if not already enabled
+- Switch to **WiFi (Poor Signal)** network preset
+- Check network quality indicator in TCP Streamer
+- On Windows WASAPI loopback, base buffer is automatically 8000ms
+
+### Sample Rate Mismatch
+
+**Problem**: Audio plays too fast or too slow
+
+**Solution**: Ensure TCP Streamer sample rate matches Snapcast configuration:
+- TCP Streamer: 48 kHz → Snapcast: `sampleformat=48000:16:2`
+- TCP Streamer: 44.1 kHz → Snapcast: `sampleformat=44100:16:2`
+
+### No Audio Transmitted
+
+**Problem**: Connected but no audio reaching Snapcast clients
+
+**Solutions**:
+- Verify audio is playing on source computer
+- Check input device volume is not muted
+- Disable **Silence Detection** temporarily to test
+- Monitor RMS meter in TCP Streamer - should show activity when audio plays
+- Check Snapcast client volume is not muted
+
+## Performance Metrics
+
+**Expected Performance:**
+
+| Sample Rate | Channels | Bitrate | Bandwidth per Hour |
+|-------------|----------|---------|-------------------|
+| 44.1 kHz | Stereo | 1411 kbps | ~635 MB |
+| 48 kHz | Stereo | 1536 kbps | ~691 MB |
+
+**Resource Usage:**
+- **CPU**: ~2-5% (single core)
+- **RAM**: ~100-150 MB
+- **Network**: Continuous TCP stream at ~1.5 Mbps
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Silence Detection" icon="volume-xmark" href="/features/silence-detection">
+    Save bandwidth by stopping transmission during silence
+  </Card>
+  <Card title="Adaptive Buffering" icon="chart-line" href="/features/adaptive-buffering">
+    Automatically adjust buffers for network conditions
+  </Card>
+  <Card title="Network Settings" icon="network-wired" href="/configuration/network-settings">
+    Optimize network performance for your setup
+  </Card>
+  <Card title="Snapcast Official Docs" icon="book" href="https://github.com/badaix/snapcast">
+    Learn more about Snapcast server configuration
+  </Card>
+</CardGroup>

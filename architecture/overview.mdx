@@ -1,0 +1,239 @@
+---
+title: "System Architecture Overview"
+description: "Technical architecture of TCP Streamer, including technology stack, component design, and system integration"
+---
+
+## Technology Stack
+
+TCP Streamer is built as a modern cross-platform desktop application using:
+
+### Frontend
+
+- **Framework**: HTML, CSS, JavaScript (vanilla)
+- **Build Tool**: Vite
+- **UI Pattern**: Tab-based interface with real-time event-driven updates
+
+### Backend
+
+- **Runtime**: Tauri v2 (Rust-based)
+- **Audio Library**: [cpal](https://github.com/RustAudio/cpal) (Cross-Platform Audio Library)
+- **Concurrency**: Native Rust threads with message passing
+- **Lock-Free Buffer**: HeapRb from ringbuf crate
+
+### Platform Support
+
+- **macOS**: 10.15+ (Intel & Apple Silicon)
+- **Windows**: 10/11 (WASAPI loopback support)
+- **Linux**: Ubuntu 20.04+, Debian, Fedora, Arch (ALSA/PulseAudio/PipeWire)
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         Frontend (HTML/JS)                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
+│  │ Settings │  │ Monitor  │  │ Profiles │  │  Logs    │       │
+│  │   Tab    │  │   Tab    │  │   Tab    │  │   Tab    │       │
+│  └─────┬────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘       │
+│        │            │             │             │               │
+│        └────────────┴─────────────┴─────────────┘               │
+│                         │                                        │
+│                    Tauri IPC                                     │
+└─────────────────────────┼──────────────────────────────────────┘
+                          │
+┌─────────────────────────┼──────────────────────────────────────┐
+│                    Rust Backend                                 │
+│                         │                                        │
+│        ┌────────────────┴────────────────┐                      │
+│        │      AudioState Manager         │                      │
+│        │   (mpsc channel coordinator)    │                      │
+│        └────┬─────────────────────┬──────┘                      │
+│             │                     │                              │
+│    ┌────────▼────────┐   ┌────────▼────────┐                   │
+│    │  Audio Thread   │   │  Network Thread │                   │
+│    │   (Producer)    │   │   (Consumer)    │                   │
+│    │                 │   │                 │                   │
+│    │ cpal Stream ────┼───┼──▶ Ring Buffer  │                   │
+│    │ (F32/I16/U16)   │   │    (HeapRb)     │                   │
+│    │                 │   │                 │                   │
+│    │ - Format detect │   │ - F32 → I16 LE  │                   │
+│    │ - Normalize     │   │ - TCP streaming │                   │
+│    │ - Prefill gate  │   │ - Strict pacing │                   │
+│    └─────────────────┘   │ - Reconnection  │                   │
+│                          └────────┬─────────┘                   │
+│                                   │                              │
+└───────────────────────────────────┼──────────────────────────────┘
+                                    │
+                                    ▼
+                         ┌──────────────────┐
+                         │   TCP Server     │
+                         │  (Snapcast, etc) │
+                         └──────────────────┘
+```
+
+## Component Interaction
+
+### 1. Application Initialization
+
+At startup (`lib.rs:13-102`), the application:
+
+- Initializes Tauri plugins (autostart, store, logger, single-instance)
+- Creates `AudioState` manager with mpsc channel
+- Sets up system tray with menu items (Show, Quit)
+- Registers Tauri commands:
+  - `get_input_devices()` - Scans audio devices
+  - `start_stream()` - Begins audio streaming
+  - `stop_stream()` - Stops streaming
+  - `get_os_type()` - Platform detection
+
+### 2. Audio State Management
+
+The `AudioState` struct (`audio.rs:126-331`) coordinates all audio operations:
+
+```rust
+pub struct AudioState {
+    tx: Mutex<mpsc::Sender<AudioCommand>>,
+}
+
+enum AudioCommand {
+    Start { /* 15 parameters */ },
+    Stop,
+}
+```
+
+**Design Pattern**: Command pattern with background thread.
+
+- Frontend sends `AudioCommand::Start` via IPC
+- Background thread listens on mpsc channel
+- Thread manages stream lifecycle and reconnection logic
+- On exit, `shutdown()` sends `Stop` command to cleanup
+
+### 3. Thread Architecture
+
+#### Main Thread
+- Handles UI events
+- Processes Tauri IPC commands
+- Manages system tray interactions
+
+#### Audio Producer Thread (cpal callback)
+- Runs in cpal's audio thread context
+- High-priority, real-time constraints
+- Minimal processing to avoid dropouts
+- Writes to lock-free ring buffer
+
+#### Network Consumer Thread
+- Created with configurable priority (`thread_priority` crate)
+- Reads from ring buffer at precise intervals
+- Manages TCP connection lifecycle
+- Emits events for stats, quality, logs
+
+#### Control Thread
+- Background thread in `AudioState::new()`
+- Processes start/stop commands
+- Handles reconnection logic
+- Maintains stream state
+
+### 4. Data Flow
+
+1. **Audio Capture** (`audio.rs:1146-1196`)
+   - cpal invokes callback with platform-specific format (F32/I16/U16)
+   - Data is normalized to F32 internally (v1.8.0)
+   - `AudioProcessor::process()` writes to ring buffer
+
+2. **Buffering** (`audio.rs:468-470`)
+   - Lock-free `HeapRb<f32>` acts as FIFO queue
+   - Producer and consumer operate independently
+   - Size: `sample_rate * 2 * duration_ms / 1000` samples
+
+3. **Transmission** (`audio.rs:766-820`)
+   - Consumer reads chunk_size samples at strict intervals
+   - F32 samples converted to I16 LE at network edge
+   - TCP write with 5-second timeout
+   - Graceful reconnection on failure
+
+### 5. Event Communication
+
+The backend emits events to frontend using Tauri's event system:
+
+```rust
+// Stats (every 2 seconds)
+app_handle.emit("stats-event", StatsEvent {
+    uptime_seconds: u64,
+    bytes_sent: u64,
+    bitrate_kbps: f64,
+});
+
+// Quality metrics (every 4 seconds)
+app_handle.emit("quality-event", QualityEvent {
+    score: u8,          // 0-100
+    jitter: f32,        // milliseconds
+    avg_latency: f32,
+    buffer_health: f32,
+    error_count: u64,
+});
+
+// Logs (rate-limited: 5/second)
+app_handle.emit("log-event", LogEvent {
+    timestamp: String,
+    level: String,
+    message: String,
+});
+
+// Buffer resize notifications
+app_handle.emit("buffer-resize-event", BufferResizeEvent {
+    new_size_ms: u32,
+    reason: String,
+});
+```
+
+### 6. Configuration Storage
+
+Settings are persisted using `tauri-plugin-store`:
+
+- Profile-based configuration
+- Auto-restore on launch
+- JSON-based storage
+- Frontend manages read/write
+
+### 7. Platform-Specific Handling
+
+#### Windows (WASAPI)
+- Loopback mode for system audio capture
+- Output devices treated as input sources
+- Larger default buffer (8000ms) for stability
+- Default buffer size (more compatible than fixed)
+
+#### macOS (CoreAudio)
+- Requires microphone permissions
+- BlackHole/Loopback for system audio
+- Auto-hide on launch with `--hidden` flag
+
+#### Linux (ALSA/PulseAudio/PipeWire)
+- F32 format preferred (native PipeWire)
+- Filters out problematic virtual devices
+- Multi-host scanning for compatibility
+
+## Error Handling Strategy
+
+1. **Stream Errors**: Logged via error callback, stream may auto-restart
+2. **Connection Failures**: Exponential backoff with jitter (2s → 60s max)
+3. **Buffer Overflow**: Drops oldest samples, logs warning (rate-limited)
+4. **Device Not Found**: Returns error to frontend with available devices
+5. **TCP Write Timeout**: Closes connection, triggers reconnection
+
+## Performance Characteristics
+
+- **Memory**: ~2-12 MB (depends on ring buffer size)
+- **CPU**: &lt;5% on modern processors
+- **Latency**: 
+  - Best case: 2 seconds (Ethernet, small buffer)
+  - Worst case: 12 seconds (WiFi, large buffer, high jitter)
+- **Bitrate**: ~1.5 Mbps @ 48kHz stereo (16-bit PCM)
+
+## Security Considerations
+
+- No authentication (relies on network security)
+- TCP keepalive prevents zombie connections
+- Write timeouts prevent indefinite blocking
+- Graceful shutdown sends TCP FIN
+- No data encryption (use VPN for secure transmission)

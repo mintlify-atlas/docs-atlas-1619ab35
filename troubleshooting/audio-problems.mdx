@@ -1,0 +1,479 @@
+---
+title: "Audio problems"
+description: "Resolve audio device detection, streaming, and quality issues across all platforms"
+---
+
+This guide addresses common audio-related problems including device detection, streaming failures, format issues, and platform-specific audio challenges.
+
+## Audio device issues
+
+<AccordionGroup>
+  <Accordion title="Audio device not found" icon="microphone-slash">
+    **Symptom**: Input device doesn't appear in the dropdown list or shows as unavailable.
+
+    **Platform-specific solutions**:
+
+    ### macOS
+
+    1. **Grant microphone permissions**
+       - Open **System Settings** → **Privacy & Security** → **Microphone**
+       - Enable TCP Streamer in the list
+       - Restart the application
+
+    2. **Check device status**
+       - Open **Audio MIDI Setup** (Applications → Utilities)
+       - Verify device appears and is not grayed out
+       - Ensure sample rate matches TCP Streamer settings (44.1 or 48 kHz)
+
+    3. **Restart CoreAudio**
+       ```bash
+       sudo killall coreaudiod
+       ```
+
+    ### Windows
+
+    1. **Enable audio device**
+       - Open **Settings** → **System** → **Sound**
+       - Click **More sound settings**
+       - Right-click in device list → **Show Disabled Devices**
+       - Enable your device if disabled
+
+    2. **Update audio drivers**
+       - Open **Device Manager**
+       - Expand **Audio inputs and outputs**
+       - Right-click device → **Update driver**
+
+    3. **Check device properties**
+       - Right-click device → **Properties**
+       - Ensure device is working properly
+       - Match sample rate in **Advanced** tab to TCP Streamer settings
+
+    ### Linux
+
+    1. **Verify ALSA/PulseAudio**
+       ```bash
+       # List ALSA devices
+       arecord -l
+       
+       # List PulseAudio sources
+       pactl list sources
+       
+       # Check PipeWire (if using)
+       pw-cli list-objects Node
+       ```
+
+    2. **Permissions**
+       ```bash
+       # Add user to audio group
+       sudo usermod -a -G audio $USER
+       
+       # Log out and back in for changes to take effect
+       ```
+
+    3. **Test device directly**
+       ```bash
+       # Record 5 seconds of audio
+       arecord -d 5 -f cd test.wav
+       aplay test.wav
+       ```
+
+    <Info>After connecting a new audio device, restart TCP Streamer to refresh the device list.</Info>
+  </Accordion>
+
+  <Accordion title="Wrong device selected" icon="circle-question">
+    **Symptom**: Audio streaming works but captures audio from the wrong source.
+
+    **Identifying devices**:
+
+    1. **Check device names carefully**
+       - Devices may have similar names (e.g., "Microphone (USB)" vs "Microphone (Built-in)")
+       - Look for manufacturer names or connection type
+
+    2. **Use the visual volume indicator**
+       - Select a device from the dropdown
+       - Speak or play audio
+       - The real-time RMS meter should show activity
+       - If no movement, you have the wrong device
+
+    3. **Test each device systematically**
+       - Select device
+       - Generate audio on that source
+       - Check the volume meter
+       - Note which device responds
+
+    **Common device selection issues**:
+
+    - **Built-in microphone selected instead of loopback device**
+    - **HDMI audio output selected instead of system audio**
+    - **Monitor device instead of playback device (Linux)**
+    - **Disabled device still showing in list**
+
+    <Tip>On Windows with WASAPI loopback, the device name usually includes "(Loopback)" to distinguish it from the regular input.</Tip>
+  </Accordion>
+
+  <Accordion title="Device disappears during streaming" icon="exclamation">
+    **Symptom**: Streaming starts successfully but device becomes unavailable during operation.
+
+    **Common causes**:
+
+    1. **Device was unplugged**
+       - USB devices disconnected
+       - Bluetooth devices went out of range
+       - Docking station disconnected
+
+    2. **Driver crash or reload**
+       - Audio driver encountered an error
+       - System updated drivers in background
+       - Power management suspended device
+
+    3. **Sample rate mismatch**
+       - System changed device sample rate
+       - Another application requested exclusive mode
+       - Device doesn't support requested format
+
+    **Solutions**:
+
+    1. **Use wired connections**
+       - Prefer USB or built-in devices over Bluetooth
+       - Ensure USB cables are secure
+       - Avoid USB hubs when possible
+
+    2. **Disable exclusive mode (Windows)**
+       - Sound Settings → Device Properties → Additional device properties
+       - Advanced tab → Uncheck "Allow applications to take exclusive control"
+
+    3. **Disable power management**
+       - Device Manager → Audio device → Properties
+       - Power Management tab → Uncheck "Allow computer to turn off this device"
+
+    4. **Lock sample rate**
+       - Configure device to use fixed sample rate matching TCP Streamer
+       - Windows: Sound Settings → Device Properties → Advanced
+       - macOS: Audio MIDI Setup → Device → Format
+  </Accordion>
+</AccordionGroup>
+
+## Loopback and system audio capture
+
+<AccordionGroup>
+  <Accordion title="WASAPI loopback stuttering (Windows)" icon="windows">
+    **Symptom**: Audio captured via Windows WASAPI loopback has stuttering, dropouts, or glitches.
+
+    **Background**: WASAPI loopback is more sensitive to network conditions and timing variability than standard audio inputs. This is a known limitation of the Windows audio architecture.
+
+    **Automatic optimizations (v1.5.3+)**:
+
+    TCP Streamer automatically detects WASAPI loopback and applies optimized settings:
+    - **Base ring buffer**: 8000ms (vs 5000ms for standard inputs)
+    - **Adaptive range**: 4000-12000ms (wider tolerance)
+    - **Expected latency**: 4-12 seconds depending on network quality
+
+    **Manual solutions**:
+
+    1. **Enable adaptive buffering**
+       - Turn on **Adaptive Buffer** in Advanced settings
+       - Set minimum to 4000ms, maximum to 12000ms
+       - Allow buffer to stabilize over 30-60 seconds
+
+    2. **Use network preset for your connection**
+       - **Ethernet**: Better performance, lower latency possible
+       - **WiFi**: Use WiFi preset for balanced performance  
+       - **WiFi (Poor)**: Maximum stability for challenging conditions
+
+    3. **Increase buffer size**
+       - Change **Buffer Size** to 2048 samples
+       - Reduces processing frequency
+       - Gives WASAPI more time for each callback
+
+    4. **Alternative: Use VB-Audio Cable**
+       - Install [VB-Audio Virtual Cable](https://vb-audio.com/Cable/)
+       - Set as default playback device
+       - Select as input device in TCP Streamer
+       - More stable than WASAPI loopback, lower latency possible
+
+    <Warning>WASAPI loopback latency is 4-12 seconds on WiFi laptops due to CPU throttling and timing variability. This is a trade-off for stability without virtual audio devices.</Warning>
+  </Accordion>
+
+  <Accordion title="No audio with loopback enabled (Windows)" icon="volume-xmark">
+    **Symptom**: WASAPI loopback device is selected but no audio is captured.
+
+    **Requirement**: WASAPI loopback requires speakers or headphones to be plugged in and playing audio. You must hear the audio locally for it to be captured.
+
+    **Solutions**:
+
+    1. **Connect audio output device**
+       - Plug in speakers or headphones
+       - Ensure device is enabled and set as default playback device
+       - Volume doesn't need to be high, but audio must be playing
+
+    2. **Verify playback is occurring**
+       - Open **Volume Mixer** (right-click volume icon)
+       - Confirm application is producing audio
+       - Check that playback device is receiving signal
+
+    3. **Select correct loopback device**
+       - Loopback device name usually includes "(Loopback)" suffix
+       - Must match the playback device you want to capture
+       - Example: If using "Speakers (Realtek)", select "Speakers (Realtek) (Loopback)"
+
+    4. **Alternative: Use VB-Audio Cable**
+       - More reliable than WASAPI loopback
+       - Doesn't require physical audio output
+       - Lower latency and better stability
+  </Accordion>
+
+  <Accordion title="macOS system audio capture (BlackHole/Loopback)" icon="apple">
+    **Symptom**: Need to capture system audio on macOS but don't have a built-in loopback option.
+
+    **macOS requires third-party software for system audio capture**:
+
+    ### Option 1: BlackHole (Free)
+
+    1. **Install BlackHole**
+       ```bash
+       brew install blackhole-2ch
+       # or download from https://github.com/ExistentialAudio/BlackHole
+       ```
+
+    2. **Create Multi-Output Device**
+       - Open **Audio MIDI Setup**
+       - Click **+** → **Create Multi-Output Device**
+       - Check both **BlackHole 2ch** and your speakers
+       - Right-click → **Use This Device For Sound Output**
+
+    3. **Configure TCP Streamer**
+       - Select **BlackHole 2ch** as input device
+       - Set sample rate to match (48 kHz recommended)
+
+    ### Option 2: Loopback by Rogue Amoeba (Paid)
+
+    - Professional solution with GUI
+    - Easy virtual device creation
+    - Advanced routing capabilities
+    - [https://rogueamoeba.com/loopback/](https://rogueamoeba.com/loopback/)
+
+    <Info>BlackHole is free and open-source but requires manual Audio MIDI Setup configuration. Loopback is commercial software with a more user-friendly interface.</Info>
+  </Accordion>
+
+  <Accordion title="Linux loopback/monitor source" icon="linux">
+    **Symptom**: Need to capture system audio on Linux.
+
+    **PulseAudio/PipeWire monitor sources**:
+
+    1. **List available monitors**
+       ```bash
+       # PulseAudio
+       pactl list sources | grep -E '(Name|Description)'
+       
+       # PipeWire
+       pw-cli list-objects Node | grep -E '(audio|monitor)'
+       ```
+
+    2. **Create loopback module (PulseAudio)**
+       ```bash
+       # Load module
+       pactl load-module module-loopback
+       
+       # Make persistent
+       echo "load-module module-loopback" >> ~/.config/pulse/default.pa
+       ```
+
+    3. **Select monitor device**
+       - Look for devices with ".monitor" suffix
+       - Example: "alsa_output.pci-0000_00_1f.3.analog-stereo.monitor"
+       - Select this device in TCP Streamer
+
+    **ALSA loopback**:
+
+    ```bash
+    # Load snd-aloop module
+    sudo modprobe snd-aloop
+    
+    # Make persistent
+    echo "snd-aloop" | sudo tee -a /etc/modules
+    ```
+
+    <Tip>Most modern Linux distributions use PipeWire, which has excellent monitor source support out of the box.</Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Audio streaming problems
+
+<AccordionGroup>
+  <Accordion title="No audio streaming despite connection" icon="ban">
+    **Symptom**: TCP connection is established and showing as active, but no audio data is being sent.
+
+    **Cause 1: Silence detection is working correctly**
+
+    - TCP Streamer detects silence and stops transmission to save bandwidth
+    - This is expected behavior when no audio is playing
+
+    **Verify**:
+    - Play audio on your system
+    - Watch the **real-time volume meter** in TCP Streamer
+    - Check activity log for "Silence detected" or "Audio resumed" messages
+
+    **Solutions**:
+    - Play audio to trigger streaming
+    - Lower silence threshold if legitimate audio is being detected as silence
+    - Disable silence detection temporarily to test
+
+    **Cause 2: Audio input is muted or volume too low**
+
+    - Input device volume is at zero
+    - Device is muted in system settings
+    - Application producing audio is muted
+
+    **Solutions**:
+    - Check system volume mixer
+    - Unmute the device
+    - Increase input device volume
+    - Verify application is producing audio output
+
+    **Cause 3: Wrong device selected**
+
+    - See "Wrong device selected" section above
+    - Use volume meter to verify correct device
+
+    <Check>The volume indicator should show green bars when audio is playing. If the meter is flat, audio is not reaching TCP Streamer.</Check>
+  </Accordion>
+
+  <Accordion title="Audio quality issues (clipping, distortion, noise)" icon="volume-high">
+    **Symptom**: Audio streams successfully but has quality problems.
+
+    **v1.8.0 native F32 architecture**:
+
+    TCP Streamer v1.8.0+ uses native F32 internal architecture which eliminates most clipping and noise issues, especially on Linux.
+
+    **If you're on v1.8.0+ and still experiencing issues**:
+
+    1. **Check input levels**
+       - Use the real-time RMS meter
+       - Audio should be in the green range, not constantly maxed
+       - Reduce input gain if meter is always at maximum
+
+    2. **Verify sample rate match**
+       - Device native sample rate should match TCP Streamer setting
+       - Mismatched rates cause resampling artifacts
+       - Check device properties in system audio settings
+
+    3. **Buffer size tuning**
+       - Very small buffers (256) can cause distortion under load
+       - Try 512 or 1024 for better quality
+       - Larger buffers reduce processing artifacts
+
+    4. **Disable audio enhancements**
+       - Windows: Device properties → Enhancements → Disable all
+       - macOS: Audio MIDI Setup → Device → Ambient Noise Reduction (off)
+
+    **If you're on older versions**:
+    - Upgrade to v1.8.0+ for improved audio architecture
+    - Linux users especially benefit from noise elimination
+
+    <Info>Version 1.8.0 introduced native F32 processing throughout the audio pipeline, eliminating conversion artifacts and clipping issues present in earlier versions.</Info>
+  </Accordion>
+
+  <Accordion title="Silence detection too sensitive" icon="volume-slash">
+    **Symptom**: Streaming stops during quiet parts of audio that should still be transmitted.
+
+    **Understanding silence detection**:
+
+    - Uses RMS (Root Mean Square) analysis
+    - Threshold is configurable via slider
+    - White line on volume meter shows current noise floor
+    - Timeout determines how long silence must persist before stopping
+
+    **Solutions**:
+
+    1. **Tune threshold using volume indicator**
+       - Play typical audio content
+       - Watch the real-time volume meter
+       - Set threshold slider just above the noise floor (white line)
+       - Should trigger on silence, not quiet audio
+
+    2. **Increase timeout**
+       - Set longer timeout (e.g., 10 seconds instead of 3)
+       - Allows brief pauses without stopping stream
+       - Good for music with quiet passages
+
+    3. **Disable for continuous content**
+       - Turn off silence detection for 24/7 streaming
+       - Accept higher bandwidth usage
+       - Ensures no audio is missed
+
+    4. **Adjust input gain**
+       - If legitimate audio is too quiet, increase input gain
+       - Raises signal above noise floor
+       - Makes distinction clearer
+
+    <Tip>The visual RMS meter is crucial for proper silence detection tuning. Set the threshold where the meter shows green bars for normal audio but stays flat during actual silence.</Tip>
+  </Accordion>
+
+  <Accordion title="Startup stutter/pops (v1.8.1 prefill gate)" icon="play">
+    **Symptom**: Audio has stuttering or popping sounds in the first second of streaming.
+
+    **v1.8.1 prefill gate solution**:
+
+    Version 1.8.1 introduced a prefill gate that buffers 1000ms of audio before transmission begins, eliminating startup stutter.
+
+    **If you're experiencing startup issues**:
+
+    1. **Update to v1.8.1 or later**
+       - Prefill gate is only available in v1.8.1+
+       - Download from [releases page](https://github.com/NaturalDevCR/TCP-Streamer/releases)
+
+    2. **Verify buffer settings**
+       - Ensure ring buffer is at least 2000ms
+       - Prefill gate needs buffer headroom to work
+
+    3. **Check network conditions**
+       - Startup stutter can also be caused by initial network congestion
+       - Enable adaptive buffering to compensate
+
+    <Check>Version 1.8.1+ automatically fills the buffer before starting transmission, ensuring clean startup without stutters.</Check>
+  </Accordion>
+</AccordionGroup>
+
+## Diagnostic tools
+
+### Real-time volume meter
+
+The volume meter is your primary diagnostic tool:
+
+- **Green bars**: Audio is being captured correctly
+- **Flat line**: No audio detected (check device, volume, mute status)
+- **White line**: Current noise floor for silence detection
+- **Constant maximum**: Input gain too high, may cause clipping
+
+### Activity log monitoring
+
+Check the activity log for:
+- "Silence detected, pausing transmission" - Silence detection working
+- "Audio resumed" - Audio detected after silence
+- "Buffer resized" - Adaptive buffering adjusting to conditions
+- "Device error" - Hardware or driver issues
+
+### Test with known-good device
+
+If troubleshooting a specific device:
+1. Test with built-in microphone or known-working device
+2. If that works, issue is with original device or its configuration
+3. Focus on device drivers, sample rate, and system audio settings
+
+## Platform-specific issues
+
+For platform-specific audio configuration and optimization, see:
+
+- [Windows platform guide](/platforms/windows) - WASAPI, VB-Audio Cable, exclusive mode
+- [macOS platform guide](/platforms/macos) - BlackHole, CoreAudio, permissions
+- [Linux platform guide](/platforms/linux) - ALSA, PulseAudio, PipeWire, monitor sources
+
+## Getting help
+
+When reporting audio issues, include:
+- Operating system and version
+- TCP Streamer version
+- Audio device name and type (built-in, USB, virtual)
+- Sample rate and buffer size settings
+- Whether you're using loopback/system audio capture
+- Description of audio behavior (no audio, distortion, stuttering, etc.)

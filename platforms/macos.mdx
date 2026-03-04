@@ -1,0 +1,517 @@
+---
+title: "macOS Setup Guide"
+description: "Complete guide for installing and configuring TCP Streamer on macOS with CoreAudio and system audio capture"
+---
+
+## Overview
+
+TCP Streamer on macOS uses CoreAudio for high-quality, low-latency audio capture. While macOS doesn't include native loopback support, virtual audio devices like BlackHole make system audio capture straightforward and efficient.
+
+## Installation
+
+### Download & Install
+
+<Steps>
+  <Step title="Download the .dmg file">
+    Download the latest macOS installer from the [Releases Page](https://github.com/NaturalDevCR/TCP-Streamer/releases).
+    
+    Available for:
+    - **Apple Silicon** (M1, M2, M3, M4)
+    - **Intel** processors
+    
+    Download the appropriate version for your Mac.
+  </Step>
+
+  <Step title="Mount and install">
+    1. Double-click the `.dmg` file to mount it
+    2. Drag **TCP Streamer.app** to your **Applications** folder
+    3. Eject the disk image
+  </Step>
+
+  <Step title="First launch">
+    Open TCP Streamer from Applications or Spotlight (Cmd + Space).
+    
+    If you see a security warning, see [Permission Issues](#permission-issues) below.
+  </Step>
+</Steps>
+
+### System Requirements
+
+- **OS**: macOS 10.15 (Catalina) or later
+- **RAM**: 100 MB minimum
+- **Architecture**: Intel or Apple Silicon
+- **Audio**: CoreAudio-compatible device
+- **Network**: Stable connection to TCP server
+
+## Audio Capture Methods
+
+### System Audio Capture with BlackHole
+
+macOS doesn't include native system audio capture, but BlackHole provides a free, open-source virtual audio device.
+
+#### Install BlackHole
+
+<Steps>
+  <Step title="Download BlackHole">
+    Visit [BlackHole GitHub](https://github.com/ExistentialAudio/BlackHole) and download the installer.
+    
+    Choose:
+    - **BlackHole 2ch** (stereo) - Recommended for most users
+    - **BlackHole 16ch** (multi-channel) - For advanced setups
+  </Step>
+
+  <Step title="Install the driver">
+    1. Open the downloaded `.pkg` file
+    2. Follow the installation wizard
+    3. Enter your password when prompted
+    4. Restart your Mac (if required)
+  </Step>
+
+  <Step title="Configure Multi-Output Device">
+    To hear audio while streaming:
+    
+    1. Open **Audio MIDI Setup** (Applications → Utilities)
+    2. Click the **+** button and select **Create Multi-Output Device**
+    3. Check both:
+       - Your speakers/headphones
+       - BlackHole 2ch
+    4. Set as your system output device
+  </Step>
+
+  <Step title="Select in TCP Streamer">
+    In TCP Streamer, select **BlackHole 2ch** as your input device.
+  </Step>
+</Steps>
+
+<Note>
+  **Alternative**: [Loopback by Rogue Amoeba](https://rogueamoeba.com/loopback/) is a premium app with advanced routing features, but BlackHole is sufficient for most users.
+</Note>
+
+### Microphone Input
+
+For capturing microphone or line-in audio:
+
+<Steps>
+  <Step title="Grant microphone permission">
+    TCP Streamer will request microphone access on first launch.
+    
+    If denied, grant it manually:
+    1. System Settings → Privacy & Security → Microphone
+    2. Enable TCP Streamer
+  </Step>
+
+  <Step title="Select input device">
+    Choose your microphone or audio interface from the Input Device dropdown.
+  </Step>
+</Steps>
+
+## Configuration
+
+### Optimal Settings for BlackHole
+
+BlackHole provides excellent timing stability:
+
+<Tabs>
+  <Tab title="Ethernet (Wired)">
+    **For stable wired connections:**
+    
+    - **Sample Rate**: 48 kHz
+    - **Buffer Size**: 512 samples
+    - **Ring Buffer**: 2000ms
+    - **Adaptive Buffer**: Enabled
+      - Min: 1000ms
+      - Max: 4000ms
+    - **Expected Latency**: 1-2 seconds
+  </Tab>
+
+  <Tab title="WiFi (Good Signal)">
+    **For standard WiFi connections:**
+    
+    - **Sample Rate**: 48 kHz
+    - **Buffer Size**: 1024 samples
+    - **Ring Buffer**: 4000ms
+    - **Adaptive Buffer**: Enabled
+      - Min: 3000ms
+      - Max: 10000ms
+    - **Expected Latency**: 3-5 seconds
+  </Tab>
+
+  <Tab title="WiFi (Poor Signal)">
+    **For unstable WiFi:**
+    
+    - **Sample Rate**: 44.1 kHz
+    - **Buffer Size**: 2048 samples
+    - **Ring Buffer**: 8000ms
+    - **Adaptive Buffer**: Enabled
+      - Min: 5000ms
+      - Max: 15000ms
+    - **Expected Latency**: 6-10 seconds
+  </Tab>
+</Tabs>
+
+### Network Presets
+
+Use the **Advanced** tab for quick configuration:
+
+| Preset | Ring Buffer | Chunk Size | Adaptive Range | Best For |
+|--------|-------------|------------|----------------|----------|
+| **Ethernet** | 2000ms | 512 | 2-6s | Wired connections |
+| **WiFi** | 4000ms | 1024 | 3-10s | Standard WiFi |
+| **WiFi (Poor)** | 8000ms | 2048 | 5-15s | Weak signal |
+
+### Sample Rate Considerations
+
+BlackHole and macOS audio devices support multiple sample rates:
+
+- **48 kHz** - Recommended for modern systems, video sync
+- **44.1 kHz** - Standard for music, slightly lower CPU usage
+
+<Note>
+  Ensure BlackHole sample rate matches TCP Streamer settings in Audio MIDI Setup.
+</Note>
+
+## Permissions
+
+macOS requires explicit permission for audio capture and system access.
+
+### Microphone Permission
+
+<Steps>
+  <Step title="Initial prompt">
+    TCP Streamer will request microphone access on first launch.
+    
+    Click **OK** to grant access.
+  </Step>
+
+  <Step title="Manual grant">
+    If you accidentally denied access:
+    
+    1. Open **System Settings**
+    2. Navigate to **Privacy & Security** → **Microphone**
+    3. Enable **TCP Streamer**
+    4. Restart TCP Streamer
+  </Step>
+</Steps>
+
+### Network Permission
+
+TCP Streamer requires network access to connect to your server:
+
+1. macOS may prompt for network access on first connection
+2. Click **Allow**
+3. If denied, check **System Settings** → **Privacy & Security** → **Network**
+
+### System Tray Permission
+
+For menu bar/system tray integration:
+
+1. TCP Streamer may request accessibility permissions
+2. Grant in **System Settings** → **Privacy & Security** → **Accessibility**
+
+## Performance & Optimization
+
+### CPU Usage
+
+TCP Streamer is highly efficient on macOS:
+
+- **Idle**: &lt;1% CPU
+- **Streaming**: 1-3% CPU
+- **Memory**: 2-4 MB typical
+
+### Apple Silicon Optimization
+
+On M1/M2/M3/M4 Macs:
+
+- TCP Streamer runs natively (no Rosetta required)
+- Expect even lower CPU usage (often &lt;1% while streaming)
+- Excellent battery efficiency on laptops
+
+### Reducing CPU Usage
+
+If you experience high CPU usage:
+
+1. **Increase buffer size** to 2048 samples
+2. **Lower sample rate** to 44.1 kHz
+3. **Close competing audio apps** (DAWs, multiple music players)
+4. **Check Activity Monitor** for other CPU-intensive processes
+
+## Troubleshooting
+
+### Permission Issues
+
+**Problem**: "TCP Streamer.app is damaged and can't be opened"
+
+This is macOS Gatekeeper blocking unsigned apps.
+
+**Solution**:
+
+<Tabs>
+  <Tab title="GUI Method">
+    1. Right-click **TCP Streamer.app**
+    2. Select **Open**
+    3. Click **Open** in the security dialog
+    4. Enter your password if prompted
+    
+    The app will now be allowed to run.
+  </Tab>
+
+  <Tab title="Terminal Method">
+    Remove the quarantine attribute:
+    
+    ```bash
+    xattr -cr /Applications/TCP\ Streamer.app
+    ```
+    
+    Then launch normally.
+  </Tab>
+</Tabs>
+
+<Note>
+  You only need to do this once. Subsequent launches will work normally.
+</Note>
+
+### Audio Device Not Found
+
+**Problem**: BlackHole or audio device doesn't appear
+
+**Solutions**:
+
+<Steps>
+  <Step title="Verify BlackHole installation">
+    Open **Audio MIDI Setup** and verify BlackHole appears in the device list.
+  </Step>
+
+  <Step title="Restart TCP Streamer">
+    Quit and relaunch TCP Streamer after installing BlackHole.
+  </Step>
+
+  <Step title="Grant microphone permission">
+    Check **System Settings** → **Privacy & Security** → **Microphone**
+  </Step>
+
+  <Step title="Reinstall BlackHole">
+    If still not detected, reinstall BlackHole and restart your Mac.
+  </Step>
+</Steps>
+
+### No Audio Capture (BlackHole)
+
+**Problem**: BlackHole selected but no audio is captured
+
+**Solutions**:
+
+1. **Check Multi-Output Device**:
+   - Open Audio MIDI Setup
+   - Verify Multi-Output Device includes BlackHole
+   - Ensure Multi-Output is set as system output
+
+2. **Verify system audio is playing**:
+   - Check volume is not muted
+   - Play audio from any app
+   - Watch TCP Streamer volume indicator
+
+3. **Check sample rate mismatch**:
+   - In Audio MIDI Setup, ensure BlackHole sample rate matches TCP Streamer
+   - Common mismatch: BlackHole at 44.1 kHz, TCP Streamer at 48 kHz
+
+4. **Restart Core Audio**:
+   ```bash
+   sudo killall coreaudiod
+   ```
+   This restarts macOS audio subsystem.
+
+### Connection Issues
+
+**Problem**: "Failed to connect to TCP server"
+
+**Solutions**:
+
+<Steps>
+  <Step title="Check server is running">
+    Verify your TCP server (e.g., Snapcast) is running and listening.
+  </Step>
+
+  <Step title="Test network connectivity">
+    Open Terminal and test:
+    
+    ```bash
+    nc -zv [server-ip] [port]
+    ```
+    
+    Example:
+    ```bash
+    nc -zv 192.168.1.100 4953
+    ```
+  </Step>
+
+  <Step title="Check macOS Firewall">
+    1. System Settings → Network → Firewall
+    2. If enabled, add TCP Streamer to allowed apps
+  </Step>
+
+  <Step title="Try localhost">
+    If server is on the same Mac:
+    - IP: `127.0.0.1` or `localhost`
+  </Step>
+</Steps>
+
+### Audio Stuttering or Dropouts
+
+**Problem**: Audio cuts out or stutters during streaming
+
+**Solutions**:
+
+<Steps>
+  <Step title="Enable adaptive buffer">
+    Navigate to Audio Settings and enable Adaptive Buffer with wider range.
+  </Step>
+
+  <Step title="Increase ring buffer">
+    Manually increase Ring Buffer to 5000ms or higher.
+  </Step>
+
+  <Step title="Apply WiFi preset">
+    Use the **WiFi (Poor Signal)** preset in Advanced tab.
+  </Step>
+
+  <Step title="Check network quality">
+    Monitor the Network Quality indicator:
+    - If consistently "Fair" or "Poor", improve network connection
+  </Step>
+
+  <Step title="Close background apps">
+    Quit unnecessary applications, especially:
+    - Browsers with many tabs
+    - Video streaming apps
+    - File sync services (Dropbox, iCloud)
+  </Step>
+</Steps>
+
+### High Latency
+
+**Problem**: Noticeable delay between Mac and server
+
+**Expected Latency**:
+- Ethernet: 1-3 seconds
+- WiFi: 3-6 seconds
+- Poor WiFi: 6-12 seconds
+
+**To Reduce Latency**:
+
+1. **Use wired Ethernet** instead of WiFi
+2. **Reduce ring buffer** to minimum stable value
+3. **Apply Ethernet preset** in Advanced tab
+4. **Disable adaptive buffer** if network is very stable
+5. **Reduce buffer size** to 512 or 256 samples
+
+## Automation
+
+### Auto-start on macOS Login
+
+Enable **Auto-start on launch** in TCP Streamer settings:
+
+1. Navigate to **Automation** tab
+2. Enable "Start on system boot"
+3. TCP Streamer will launch minimized to menu bar
+
+**Manual Method**:
+
+Add TCP Streamer to Login Items:
+
+1. System Settings → General → Login Items
+2. Click **+** button
+3. Select TCP Streamer from Applications
+4. Optional: Check "Hide" to start minimized
+
+### Auto-stream Configuration
+
+For fully automated operation:
+
+1. **Enable Auto-start on launch** - Start with macOS
+2. **Enable Auto-stream** - Begin streaming immediately
+3. **Enable Auto-reconnect** - Retry connection on failure
+4. **Configure Multi-Output Device** - Hear audio while streaming
+5. **Set silence detection** - Pause during silence
+
+## Advanced Features
+
+### CoreAudio Configuration
+
+Fine-tune CoreAudio for optimal performance:
+
+#### Adjust BlackHole Buffer Size
+
+1. Open **Audio MIDI Setup**
+2. Select **BlackHole 2ch**
+3. Click **Configure Speakers** (gear icon)
+4. Adjust buffer size (lower = less latency, higher = more stable)
+
+#### Aggregate Device (Advanced)
+
+Combine multiple audio sources:
+
+1. Audio MIDI Setup → **+** → Create Aggregate Device
+2. Check devices to combine (e.g., microphone + BlackHole)
+3. Set clock source to most stable device
+4. Select Aggregate Device in TCP Streamer
+
+### QoS (Quality of Service) Tagging
+
+1. Navigate to **Advanced** tab
+2. Select QoS preset:
+   - **VoIP** (EF) - Highest priority
+   - **Low Delay** - Expedited forwarding
+   - **Throughput** - Bulk transfer
+
+<Note>
+  QoS requires router support to be effective.
+</Note>
+
+### High Priority Thread
+
+Reduce jitter on WiFi connections:
+
+1. Navigate to **Advanced** tab
+2. Enable **High Priority Thread**
+3. May improve stability on heavily loaded systems
+
+## Best Practices
+
+### For Multi-room Audio (Snapcast)
+
+1. Use **BlackHole 2ch** with Multi-Output Device
+2. Apply **WiFi** preset (4s buffer)
+3. Enable **Auto-reconnect**
+4. Set silence timeout to 300 seconds (5 minutes)
+5. Enable **Adaptive Buffer** (3s - 10s)
+
+### For Low-latency Applications
+
+1. Use **wired Ethernet** connection
+2. Apply **Ethernet** preset (2s buffer)
+3. Set buffer size to 512 samples
+4. Use 48 kHz sample rate
+5. Disable silence detection for continuous stream
+
+### For MacBook/Laptop Setups
+
+1. Use **WiFi (Poor)** preset for stability
+2. Enable **Auto-reconnect** for network switches
+3. Enable **Adaptive Buffer** (5s - 15s)
+4. Consider higher buffer sizes (1024 or 2048)
+5. Close unnecessary background apps
+
+## Additional Resources
+
+- [BlackHole Documentation](https://github.com/ExistentialAudio/BlackHole/wiki)
+- [General Configuration Guide](../essentials/configuration)
+- [Troubleshooting Guide](../essentials/troubleshooting)
+- [GitHub Issues](https://github.com/NaturalDevCR/TCP-Streamer/issues)
+- [Snapcast Integration](../use-cases/snapcast)
+
+---
+
+**Platform**: macOS 10.15+
+**Audio API**: CoreAudio
+**Native Loopback**: No (requires BlackHole or similar)
+**Typical Latency**: 1-3 seconds (wired) | 3-6 seconds (WiFi)

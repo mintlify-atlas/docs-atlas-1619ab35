@@ -1,0 +1,314 @@
+---
+title: "Connection issues"
+description: "Troubleshoot TCP connection problems, firewall settings, and auto-reconnect failures"
+---
+
+This guide helps you diagnose and resolve connection problems when TCP Streamer fails to establish or maintain a connection to your TCP server.
+
+## Common connection problems
+
+<AccordionGroup>
+  <Accordion title="Failed to connect error" icon="circle-xmark">
+    **Symptom**: Application displays "Failed to connect" when attempting to start streaming.
+
+    **Root causes**:
+    - TCP server is not running or not listening on the specified port
+    - Incorrect IP address or port number
+    - Firewall blocking the connection
+    - Network routing issues
+
+    **Solutions**:
+
+    1. **Verify the server is running**
+       ```bash
+       # For Snapcast server
+       sudo systemctl status snapserver
+       
+       # Check if port is listening
+       netstat -an | grep 4953
+       ```
+
+    2. **Test basic connectivity**
+       ```bash
+       # Ping the server
+       ping 192.168.1.100
+       
+       # Test TCP connection
+       telnet 192.168.1.100 4953
+       # or
+       nc -zv 192.168.1.100 4953
+       ```
+
+    3. **Check firewall settings**
+       - **Windows**: Allow TCP Streamer through Windows Defender Firewall
+       - **macOS**: System Settings → Network → Firewall → Allow incoming connections
+       - **Linux**: Configure `ufw` or `iptables` to allow the port
+
+    4. **Verify connection details**
+       - Ensure IP address is correct (try `127.0.0.1` or `localhost` for local servers)
+       - Confirm port number matches your server configuration
+       - Default Snapcast TCP port is 4953
+
+    <Tip>If the server is on the same machine, always try `localhost` or `127.0.0.1` first to eliminate network issues.</Tip>
+  </Accordion>
+
+  <Accordion title="Firewall blocking connections" icon="shield">
+    **Symptom**: Connection fails even though server is running and reachable.
+
+    **Windows firewall configuration**:
+
+    1. Open Windows Defender Firewall with Advanced Security
+    2. Click **Inbound Rules** → **New Rule**
+    3. Select **Program** → Browse to TCP Streamer executable
+    4. Allow the connection
+    5. Apply to all profiles (Domain, Private, Public)
+
+    **macOS firewall configuration**:
+
+    1. Open **System Settings** → **Network**
+    2. Click **Firewall** → **Options**
+    3. Add TCP Streamer to allowed applications
+    4. Ensure "Block all incoming connections" is not checked
+
+    **Linux firewall configuration**:
+
+    ```bash
+    # Using ufw (Ubuntu/Debian)
+    sudo ufw allow out 4953/tcp
+    sudo ufw reload
+    
+    # Using firewalld (Fedora/RHEL)
+    sudo firewall-cmd --permanent --add-port=4953/tcp
+    sudo firewall-cmd --reload
+    ```
+
+    <Warning>On public networks, ensure your firewall rules don't expose services unnecessarily. Only allow outbound connections for TCP Streamer.</Warning>
+  </Accordion>
+
+  <Accordion title="Auto-reconnect not working" icon="arrows-rotate">
+    **Symptom**: Connection drops and auto-reconnect fails to restore it.
+
+    **Expected behavior**:
+    - Auto-reconnect retries connection every 3 seconds after failure
+    - Visible in the activity log with connection attempt messages
+    - Works for network interruptions, server restarts, and temporary issues
+
+    **Troubleshooting steps**:
+
+    1. **Verify auto-reconnect is enabled**
+       - Check that **Auto-reconnect** toggle is ON in the automation settings
+       - Save the profile after enabling
+
+    2. **Check the activity log**
+       - Look for "Attempting to reconnect..." messages
+       - If no retry messages appear, auto-reconnect may not be enabled
+
+    3. **Test the connection manually**
+       - Stop streaming
+       - Restart your TCP server
+       - Start streaming again to verify server is accepting connections
+
+    4. **Network stability issues**
+       - If auto-reconnect continuously fails, check network stability
+       - High packet loss or unstable WiFi can prevent successful reconnection
+       - Consider using a wired connection for critical streaming
+
+    <Info>Auto-reconnect is designed for temporary interruptions. If the server is permanently unreachable, manual intervention is required.</Info>
+  </Accordion>
+
+  <Accordion title="Connection storms (v1.9.0 fixes)" icon="cloud-bolt">
+    **Symptom**: Multiple rapid connection attempts causing server overload or ban.
+
+    **Background**: Earlier versions of TCP Streamer could create "connection storms" where rapid reconnection attempts overwhelmed the server.
+
+    **Version 1.9.0 improvements**:
+    - Implemented exponential backoff for reconnection attempts
+    - Added connection rate limiting
+    - Improved graceful disconnect handling
+    - Better detection of unrecoverable connection states
+
+    **If you're still experiencing connection storms**:
+
+    1. **Update to v1.9.0 or later**
+       - Download from the [releases page](https://github.com/NaturalDevCR/TCP-Streamer/releases)
+       - Connection storm fixes are only available in v1.9.0+
+
+    2. **Adjust reconnection behavior**
+       - Disable auto-reconnect temporarily if causing issues
+       - Manually restart streaming after resolving server problems
+
+    3. **Server-side rate limiting**
+       - Configure your TCP server to handle reconnection attempts gracefully
+       - For Snapcast, check server logs for connection patterns
+
+    <Check>Version 1.9.0+ includes comprehensive connection storm prevention. Upgrade if you're experiencing this issue.</Check>
+  </Accordion>
+
+  <Accordion title="Connection drops during streaming" icon="plug">
+    **Symptom**: Stream starts successfully but connection drops after some time.
+
+    **Common causes**:
+
+    1. **Network instability**
+       - WiFi interference or weak signal
+       - Router dropping long-lived TCP connections
+       - ISP throttling or connection resets
+
+    2. **Write timeout (v1.6.0 protection)**
+       - TCP Streamer includes a 5-second write timeout
+       - If the server stops accepting data for 5+ seconds, connection is closed
+       - Check server logs for processing delays or buffer overflows
+
+    3. **Server resource issues**
+       - Server running out of memory or CPU
+       - Too many simultaneous client connections
+       - Disk I/O bottlenecks
+
+    **Solutions**:
+
+    1. **Improve network stability**
+       - Use wired Ethernet connection instead of WiFi
+       - Move closer to WiFi router or add access point
+       - Use the **WiFi (Poor)** network preset for unstable connections
+
+    2. **Monitor server health**
+       ```bash
+       # Check server resource usage
+       top
+       htop
+       
+       # Check Snapcast server logs
+       sudo journalctl -u snapserver -f
+       ```
+
+    3. **Adjust buffer settings**
+       - Enable **Adaptive Buffer** to handle jitter
+       - Increase ring buffer size for unstable networks
+       - Use network preset appropriate for your connection type
+
+    <Tip>The **Network Quality** indicator in TCP Streamer's UI shows real-time connection health. Watch for degradation from "Excellent" to "Fair" or "Poor" before drops occur.</Tip>
+  </Accordion>
+
+  <Accordion title="Cannot connect to localhost/127.0.0.1" icon="computer">
+    **Symptom**: Server is running locally but TCP Streamer cannot connect to localhost.
+
+    **Possible causes**:
+
+    1. **Server binding to specific interface**
+       - Server may be bound to external interface only (not localhost)
+       - Check server configuration for bind address
+
+    2. **IPv4 vs IPv6 confusion**
+       - `localhost` may resolve to IPv6 `::1` but server only listens on IPv4
+       - Try `127.0.0.1` explicitly instead of `localhost`
+
+    3. **Port already in use**
+       - Another process may have claimed the port
+       - Check for conflicting services
+
+    **Diagnostic commands**:
+
+    ```bash
+    # List all listening ports
+    netstat -an | grep LISTEN
+    # or
+    ss -tuln
+    
+    # Find what's using a specific port
+    lsof -i :4953
+    # or (Windows)
+    netstat -ano | findstr :4953
+    
+    # Test IPv4 specifically
+    telnet 127.0.0.1 4953
+    
+    # Test IPv6 specifically  
+    telnet ::1 4953
+    ```
+
+    **Solutions**:
+    - Configure server to bind to `0.0.0.0` (all interfaces) or explicitly to `127.0.0.1`
+    - Use the explicit IP address instead of hostname
+    - Verify no port conflicts with `netstat` or `lsof`
+  </Accordion>
+</AccordionGroup>
+
+## Network diagnostics
+
+### Using the built-in network quality monitor
+
+TCP Streamer includes real-time network quality monitoring:
+
+- **Excellent**: Stable connection, minimal jitter (&lt;5ms)
+- **Good**: Acceptable performance, some jitter (5-20ms)
+- **Fair**: Noticeable jitter, may need buffer adjustment (20-50ms)
+- **Poor**: High jitter, expect dropouts (>50ms)
+
+If network quality degrades:
+1. Enable adaptive buffering to compensate
+2. Switch to a more conservative network preset
+3. Investigate network infrastructure issues
+
+### Connection health checklist
+
+<Check>Server is running and listening on the correct port</Check>
+<Check>IP address and port are correct in TCP Streamer</Check>
+<Check>Firewall allows outbound TCP connections</Check>
+<Check>Network connectivity is stable (ping test succeeds)</Check>
+<Check>No other applications are conflicting with the port</Check>
+<Check>Auto-reconnect is enabled for resilience</Check>
+
+## Advanced troubleshooting
+
+### Enable detailed logging
+
+Check the activity log in TCP Streamer for detailed connection events:
+- Connection attempts and results
+- Network errors and timeouts
+- Buffer resize events
+- Auto-reconnect triggers
+
+### Test with netcat
+
+Create a simple TCP server for testing:
+
+```bash
+# Start a basic TCP listener
+nc -l 4953
+
+# Or with verbose output
+nc -lvp 4953
+```
+
+Connect TCP Streamer to this test server. If connection succeeds, the issue is with your actual server configuration.
+
+### Packet capture analysis
+
+For deep network debugging:
+
+```bash
+# Capture TCP traffic (requires root/admin)
+sudo tcpdump -i any port 4953 -w capture.pcap
+
+# Analyze with Wireshark
+wireshark capture.pcap
+```
+
+Look for:
+- TCP handshake completion (SYN, SYN-ACK, ACK)
+- Data transmission patterns
+- Connection resets or timeouts
+- Retransmissions indicating packet loss
+
+## Getting help
+
+If you're still experiencing connection issues:
+
+1. Check the [GitHub Issues](https://github.com/NaturalDevCR/TCP-Streamer/issues) for similar problems
+2. Review your server's documentation for connection requirements
+3. Open a new issue with:
+   - TCP Streamer version
+   - Operating system
+   - Server type and version
+   - Network configuration (WiFi/Ethernet)
+   - Relevant log excerpts

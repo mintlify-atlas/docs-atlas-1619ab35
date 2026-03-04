@@ -1,0 +1,254 @@
+---
+title: Building from Source
+description: Learn how to build TCP Streamer from source code with detailed prerequisites and platform-specific instructions.
+---
+
+## Prerequisites
+
+Before building TCP Streamer, ensure you have the following tools installed:
+
+### Required Software
+
+- **Node.js** v18 or later - [Download from nodejs.org](https://nodejs.org/)
+- **Rust** latest stable version - [Install from rust-lang.org](https://www.rust-lang.org/)
+
+### Platform-Specific Dependencies
+
+<Tabs>
+  <Tab title="Linux (Ubuntu/Debian)">
+    Install the required system libraries:
+
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y \
+      libgtk-3-dev \
+      libwebkit2gtk-4.0-dev \
+      libappindicator3-dev \
+      librsvg2-dev \
+      patchelf \
+      libasound2-dev
+    ```
+
+    These packages provide:
+    - GTK3 and WebKit2GTK for the UI
+    - AppIndicator for system tray support
+    - ALSA development libraries for audio
+    - Patchelf for binary patching
+  </Tab>
+
+  <Tab title="macOS">
+    Install Xcode Command Line Tools:
+
+    ```bash
+    xcode-select --install
+    ```
+
+    The tools include all necessary compilers and SDK for building native macOS applications.
+  </Tab>
+
+  <Tab title="Windows">
+    Install Microsoft Visual Studio C++ Build Tools:
+
+    1. Download [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)
+    2. Run the installer
+    3. Select "Desktop development with C++" workload
+    4. Complete the installation
+
+    This provides the MSVC compiler and Windows SDK required for Rust and Tauri.
+  </Tab>
+</Tabs>
+
+## Building the Application
+
+### Clone the Repository
+
+First, clone the TCP Streamer repository:
+
+```bash
+git clone https://github.com/NaturalDevCR/TCP-Streamer.git
+cd TCP-Streamer
+```
+
+### Install Dependencies
+
+Install Node.js dependencies:
+
+<CodeGroup>
+```bash npm
+npm install
+```
+
+```bash pnpm
+pnpm install
+```
+
+```bash yarn
+yarn install
+```
+</CodeGroup>
+
+This installs the following key dependencies:
+- `@tauri-apps/cli` - Tauri command-line interface
+- `@tauri-apps/api` - Tauri JavaScript API
+- `@tauri-apps/plugin-autostart` - Auto-start functionality
+- `@tauri-apps/plugin-store` - Settings persistence
+- `vite` - Frontend build tool
+
+Rust dependencies are managed automatically by Cargo during the build process.
+
+### Development Mode
+
+Run the application in development mode with hot-reload:
+
+<CodeGroup>
+```bash npm
+npm run tauri dev
+```
+
+```bash pnpm
+pnpm tauri dev
+```
+
+```bash yarn
+yarn tauri dev
+```
+</CodeGroup>
+
+This command:
+1. Builds the Rust backend in debug mode
+2. Starts the Vite development server
+3. Launches the application with hot-reload enabled
+4. Watches for file changes in both frontend and backend
+
+### Production Build
+
+Build the application for production:
+
+<CodeGroup>
+```bash npm
+npm run tauri build
+```
+
+```bash pnpm
+pnpm tauri build
+```
+
+```bash yarn
+yarn tauri build
+```
+</CodeGroup>
+
+This creates optimized binaries in `src-tauri/target/release/` and installers in `src-tauri/target/release/bundle/`.
+
+### Platform-Specific Build Output
+
+<Tabs>
+  <Tab title="macOS">
+    After building, you'll find:
+    - **Application Bundle**: `src-tauri/target/release/bundle/macos/TCP Streamer.app`
+    - **DMG Installer**: `src-tauri/target/release/bundle/dmg/TCP Streamer_1.9.0_universal.dmg`
+
+    The macOS build creates a universal binary supporting both Intel and Apple Silicon.
+  </Tab>
+
+  <Tab title="Windows">
+    After building, you'll find:
+    - **Executable**: `src-tauri/target/release/tcp-streamer.exe`
+    - **MSI Installer**: `src-tauri/target/release/bundle/msi/TCP Streamer_1.9.0_x64_en-US.msi`
+    - **NSIS Installer**: `src-tauri/target/release/bundle/nsis/TCP Streamer_1.9.0_x64-setup.exe`
+  </Tab>
+
+  <Tab title="Linux">
+    After building, you'll find:
+    - **Binary**: `src-tauri/target/release/tcp-streamer`
+    - **Debian Package**: `src-tauri/target/release/bundle/deb/tcp-streamer_1.9.0_amd64.deb`
+    - **AppImage**: `src-tauri/target/release/bundle/appimage/tcp-streamer_1.9.0_amd64.AppImage`
+  </Tab>
+</Tabs>
+
+## Rust Dependencies
+
+The Rust backend uses the following key dependencies (defined in `src-tauri/Cargo.toml`):
+
+- **tauri** (v2) - Application framework with tray icon support
+- **cpal** (v0.15) - Cross-platform audio library for capturing audio
+- **ringbuf** (v0.3) - Lock-free ring buffer for audio streaming
+- **socket2** (v0.5) - Low-level TCP socket operations
+- **serde** & **serde_json** - Serialization/deserialization
+- **chrono** - Date and time handling
+- **thread-priority** - Thread priority management for reduced jitter
+- **tauri-plugin-autostart** - Auto-start on system boot
+- **tauri-plugin-store** - Settings persistence
+- **tauri-plugin-single-instance** - Single instance enforcement
+- **tauri-plugin-log** - Logging functionality
+
+## Troubleshooting Build Issues
+
+### Missing System Libraries (Linux)
+
+If you encounter errors about missing libraries, ensure all platform dependencies are installed:
+
+```bash
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf libasound2-dev
+```
+
+### Rust Toolchain Issues
+
+Update Rust to the latest stable version:
+
+```bash
+rustup update stable
+```
+
+### Node.js Version Issues
+
+Verify you're using Node.js v18 or later:
+
+```bash
+node --version
+```
+
+If needed, use [nvm](https://github.com/nvm-sh/nvm) to install the correct version:
+
+```bash
+nvm install 18
+nvm use 18
+```
+
+### Permission Errors (macOS)
+
+If you get a "damaged app" error after building:
+
+```bash
+xattr -cr "src-tauri/target/release/bundle/macos/TCP Streamer.app"
+```
+
+### Clean Build
+
+If you encounter persistent issues, try a clean build:
+
+<CodeGroup>
+```bash npm
+# Clean Rust build artifacts
+cd src-tauri && cargo clean && cd ..
+
+# Clean Node modules
+rm -rf node_modules package-lock.json
+
+# Reinstall and rebuild
+npm install
+npm run tauri build
+```
+
+```bash pnpm
+# Clean Rust build artifacts
+cd src-tauri && cargo clean && cd ..
+
+# Clean Node modules
+rm -rf node_modules pnpm-lock.yaml
+
+# Reinstall and rebuild
+pnpm install
+pnpm tauri build
+```
+</CodeGroup>

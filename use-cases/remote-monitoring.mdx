@@ -1,0 +1,616 @@
+---
+title: 'Remote Audio Monitoring'
+description: 'Stream audio from security cameras, monitoring devices, and remote locations to a central server for real-time analysis and recording'
+---
+
+## Overview
+
+Remote audio monitoring allows you to capture and transmit audio from distributed locations to a central monitoring station. TCP Streamer is ideal for security systems, facility monitoring, wildlife observation, and industrial applications where real-time audio transmission is critical.
+
+<Info>
+**Common Applications:**
+- Security camera audio feeds
+- Baby monitoring systems
+- Industrial equipment monitoring
+- Wildlife audio surveillance
+- Remote office/facility monitoring
+- Medical device audio alerts
+</Info>
+
+## Architecture Overview
+
+### Single Location Monitoring
+
+```
+┌──────────────────────┐
+│  Monitoring Device   │
+│  (Camera/Mic PC)     │
+│  + TCP Streamer      │
+│  192.168.1.50        │
+└──────────┬───────────┘
+           │ Internet/VPN
+           ▼
+┌──────────────────────┐
+│   Central Server     │
+│   + Audio Receiver   │
+│   + Recording        │
+│   + Analysis         │
+│   203.0.113.100      │
+└──────────────────────┘
+```
+
+### Multi-Location Monitoring
+
+```
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│  Location 1 │  │  Location 2 │  │  Location 3 │  │  Location 4 │
+│  Front Door │  │  Warehouse  │  │  Parking    │  │  Office     │
+│  :5001      │  │  :5002      │  │  :5003      │  │  :5004      │
+└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                │                │                │
+       └────────────────┴────────────────┴────────────────┘
+                            │ LAN/WAN
+                            ▼
+                ┌───────────────────────┐
+                │   Monitoring Server   │
+                │   192.168.1.100       │
+                │   - Multiplexer       │
+                │   - Recorder          │
+                │   - Alert System      │
+                └───────────────────────┘
+```
+
+## Central Monitoring Server Setup
+
+### Option 1: Simple TCP Listener with Recording
+
+A basic Python server that receives audio and saves to WAV files:
+
+```python
+#!/usr/bin/env python3
+import socket
+import wave
+import struct
+from datetime import datetime
+import threading
+
+class AudioMonitor:
+    def __init__(self, port, location_name):
+        self.port = port
+        self.location_name = location_name
+        self.sample_rate = 48000
+        self.channels = 2
+        self.sample_width = 2  # 16-bit
+        
+    def start(self):
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('0.0.0.0', self.port))
+        server.listen(1)
+        print(f"[{self.location_name}] Listening on port {self.port}")
+        
+        while True:
+            client, addr = server.accept()
+            print(f"[{self.location_name}] Connected: {addr}")
+            threading.Thread(
+                target=self.handle_stream,
+                args=(client,),
+                daemon=True
+            ).start()
+    
+    def handle_stream(self, client):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{self.location_name}_{timestamp}.wav"
+        
+        with wave.open(filename, 'wb') as wav_file:
+            wav_file.setnchannels(self.channels)
+            wav_file.setsampwidth(self.sample_width)
+            wav_file.setframerate(self.sample_rate)
+            
+            try:
+                while True:
+                    data = client.recv(4096)
+                    if not data:
+                        break
+                    wav_file.writeframes(data)
+            except Exception as e:
+                print(f"[{self.location_name}] Error: {e}")
+            finally:
+                client.close()
+                print(f"[{self.location_name}] Saved: {filename}")
+
+# Start monitoring multiple locations
+if __name__ == '__main__':
+    locations = [
+        (5001, "FrontDoor"),
+        (5002, "Warehouse"),
+        (5003, "Parking"),
+        (5004, "Office")
+    ]
+    
+    for port, name in locations:
+        monitor = AudioMonitor(port, name)
+        threading.Thread(target=monitor.start, daemon=True).start()
+    
+    # Keep main thread alive
+    try:
+        while True:
+            pass
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+```
+
+**Save as:** `monitor_server.py`
+
+**Run:**
+```bash
+python3 monitor_server.py
+```
+
+### Option 2: Real-Time Analysis Server
+
+Advanced server with audio analysis (volume detection, event triggers):
+
+```python
+#!/usr/bin/env python3
+import socket
+import struct
+import numpy as np
+import threading
+import time
+from datetime import datetime
+
+class AudioAnalyzer:
+    def __init__(self, port, location_name, threshold=1000.0):
+        self.port = port
+        self.location_name = location_name
+        self.threshold = threshold
+        self.alert_cooldown = 5  # seconds
+        self.last_alert = 0
+        
+    def calculate_rms(self, audio_data):
+        """Calculate RMS (volume) of audio samples"""
+        samples = np.frombuffer(audio_data, dtype=np.int16)
+        if len(samples) == 0:
+            return 0.0
+        return np.sqrt(np.mean(samples.astype(np.float32) ** 2))
+    
+    def trigger_alert(self, rms_value):
+        """Trigger alert when volume exceeds threshold"""
+        current_time = time.time()
+        if current_time - self.last_alert > self.alert_cooldown:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"⚠️  [{self.location_name}] ALERT at {timestamp}")
+            print(f"    Volume: {rms_value:.1f} (Threshold: {self.threshold})")
+            self.last_alert = current_time
+            
+            # Add your alert logic here:
+            # - Send email/SMS notification
+            # - Start recording
+            # - Trigger alarm
+            # - Save snapshot
+    
+    def start(self):
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(('0.0.0.0', self.port))
+        server.listen(1)
+        print(f"[{self.location_name}] Monitoring on port {self.port}")
+        print(f"[{self.location_name}] Alert threshold: {self.threshold}")
+        
+        while True:
+            client, addr = server.accept()
+            print(f"[{self.location_name}] Connected: {addr}")
+            threading.Thread(
+                target=self.analyze_stream,
+                args=(client,),
+                daemon=True
+            ).start()
+    
+    def analyze_stream(self, client):
+        try:
+            while True:
+                data = client.recv(4096)
+                if not data:
+                    break
+                
+                # Calculate audio level
+                rms = self.calculate_rms(data)
+                
+                # Check for alert condition
+                if rms > self.threshold:
+                    self.trigger_alert(rms)
+                    
+        except Exception as e:
+            print(f"[{self.location_name}] Error: {e}")
+        finally:
+            client.close()
+            print(f"[{self.location_name}] Disconnected")
+
+# Configure monitoring locations
+if __name__ == '__main__':
+    locations = [
+        (5001, "FrontDoor", 2000.0),   # High threshold - only loud events
+        (5002, "Warehouse", 1500.0),   # Medium threshold
+        (5003, "Parking", 1000.0),     # Lower threshold - detect cars
+        (5004, "Office", 500.0)        # Low threshold - detect conversations
+    ]
+    
+    analyzers = []
+    for port, name, threshold in locations:
+        analyzer = AudioAnalyzer(port, name, threshold)
+        threading.Thread(target=analyzer.start, daemon=True).start()
+        analyzers.append(analyzer)
+    
+    print("\n🎧 Audio Monitoring System Started")
+    print("Press Ctrl+C to stop\n")
+    
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n\nShutting down...")
+```
+
+**Dependencies:**
+```bash
+pip3 install numpy
+```
+
+## TCP Streamer Configuration for Monitoring
+
+<Steps>
+  <Step title="Install TCP Streamer on Monitoring Device">
+    Install TCP Streamer on each device where you want to capture audio (Windows PC with camera, Raspberry Pi with microphone, etc.).
+  </Step>
+
+  <Step title="Select Audio Input Source">
+    Choose the appropriate audio input:
+
+    **Security Camera with USB Audio:**
+    - Connect camera's audio output to USB sound card
+    - Select USB audio device in TCP Streamer
+
+    **Computer Microphone:**
+    - Select built-in or external microphone
+
+    **IP Camera with Audio Feed:**
+    - Use VLC or FFmpeg to extract audio to virtual cable
+    - Select virtual cable in TCP Streamer
+
+    **Line-In from External Device:**
+    - Connect device to line-in port
+    - Select line-in device
+  </Step>
+
+  <Step title="Configure Server Connection">
+    Set the central monitoring server details:
+
+    **For Local Network Monitoring:**
+    - **Server IP**: `192.168.1.100` (monitoring server local IP)
+    - **Port**: `5001` (unique port for this location)
+
+    **For Remote Internet Monitoring:**
+    - **Server IP**: `203.0.113.100` (public IP or VPN address)
+    - **Port**: `5001`
+    - **Note**: Configure port forwarding or VPN tunnel
+  </Step>
+
+  <Step title="Optimize for Monitoring">
+    **Recommended Settings:**
+
+    | Setting | Value | Reason |
+    |---------|-------|--------|
+    | **Sample Rate** | 44.1 kHz | Adequate for voice/monitoring |
+    | **Buffer Size** | 1024 | Balanced latency/reliability |
+    | **Ring Buffer** | 3000ms | Absorb network jitter |
+    | **Silence Detection** | Disabled | Capture all audio |
+    | **Auto-reconnect** | ✅ Enabled | Maintain 24/7 connection |
+    | **Auto-start** | ✅ Enabled | Start on boot |
+    | **Auto-stream** | ✅ Enabled | Automatic streaming |
+  </Step>
+
+  <Step title="Create Monitoring Profile">
+    Save a dedicated profile:
+
+    **Profile Name:** `Monitoring-FrontDoor`
+
+    This allows quick switching between monitoring configurations.
+  </Step>
+</Steps>
+
+## Security Best Practices
+
+### 1. Network Security
+
+<Warning>
+NEVER expose TCP Streamer directly to the internet without encryption. Audio streams are unencrypted and can be intercepted.
+</Warning>
+
+**Recommended Approaches:**
+
+#### Option A: VPN Tunnel (Most Secure)
+
+```
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│  Remote Device  │         │   VPN Server    │         │ Monitoring Server│
+│  + TCP Streamer │────────▶│  (WireGuard/    │────────▶│  + Receiver     │
+│  192.168.1.50   │ Encrypt │   OpenVPN)      │ Encrypt │  10.0.0.100     │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+```
+
+**Setup WireGuard VPN:**
+
+1. Install WireGuard on monitoring server
+2. Configure VPN network (e.g., 10.0.0.0/24)
+3. Connect remote devices to VPN
+4. Use VPN IPs for TCP connections (e.g., `10.0.0.100:5001`)
+
+#### Option B: SSH Tunnel
+
+**Forward local port through SSH:**
+
+```bash
+# On monitoring device, create SSH tunnel
+ssh -N -L 5001:localhost:5001 user@monitoring-server.com
+```
+
+**TCP Streamer Configuration:**
+- **Server IP**: `127.0.0.1`
+- **Port**: `5001`
+
+#### Option C: Firewall Rules (Less Secure)
+
+If VPN is not possible, restrict access by IP:
+
+```bash
+# On monitoring server (Linux)
+sudo ufw allow from 203.0.113.50 to any port 5001 proto tcp
+sudo ufw deny 5001/tcp
+```
+
+### 2. Authentication and Authorization
+
+**Add authentication to monitoring server:**
+
+```python
+import hmac
+import hashlib
+
+SECRET_KEY = b"your-secret-key-here"  # Change this!
+
+def verify_auth_token(token):
+    """Verify authentication token from client"""
+    expected = hmac.new(SECRET_KEY, b"tcp-streamer", hashlib.sha256).hexdigest()
+    return hmac.compare_digest(token, expected)
+
+def handle_authenticated_stream(client):
+    # Receive auth token (first 64 bytes)
+    token = client.recv(64).decode('utf-8')
+    
+    if not verify_auth_token(token):
+        print("Authentication failed")
+        client.close()
+        return
+    
+    # Continue with audio stream...
+```
+
+### 3. Encryption Wrapper
+
+**Use stunnel to add TLS encryption:**
+
+**On Monitoring Server:**
+```ini
+; /etc/stunnel/stunnel.conf
+[audio-monitor]
+accept = 5001
+connect = 127.0.0.1:5002
+cert = /etc/ssl/certs/server.pem
+key = /etc/ssl/private/server.key
+```
+
+**On Remote Device:**
+```ini
+; stunnel.conf
+[audio-client]
+client = yes
+accept = 127.0.0.1:5001
+connect = monitoring-server.com:5001
+```
+
+**TCP Streamer Configuration:**
+- **Server IP**: `127.0.0.1`
+- **Port**: `5001` (local stunnel port)
+
+## Real-World Deployment Examples
+
+### Example 1: Security System (4 Cameras)
+
+**Hardware Setup:**
+- 4x IP Cameras with audio (H.264 + AAC)
+- 1x Windows PC (monitoring station)
+- 4x Raspberry Pi 4 (audio extraction)
+
+**Per-Camera Configuration:**
+
+**Raspberry Pi Setup:**
+```bash
+# Extract audio from IP camera using FFmpeg
+ffmpeg -i rtsp://camera1:554/stream -f s16le -ar 48000 -ac 2 - | \
+  nc -l -p 8000
+```
+
+**TCP Streamer Setup (on each Pi):**
+- **Input**: Virtual audio cable (piped from FFmpeg)
+- **Server**: `192.168.1.100` (monitoring PC)
+- **Ports**: 5001, 5002, 5003, 5004 (one per camera)
+
+**Monitoring PC:**
+- Run `monitor_server.py` with 4 analyzers
+- Alert threshold: 2000 RMS
+- Record to: `D:\SecurityAudio\`
+
+### Example 2: Baby Monitor
+
+**Hardware:**
+- 1x Raspberry Pi Zero W
+- USB microphone
+- Smartphone/tablet (monitoring)
+
+**Raspberry Pi Configuration:**
+```bash
+# Install TCP Streamer (or use arecord)
+arecord -D hw:1,0 -f S16_LE -r 48000 -c 2 | nc monitoring-phone.local 5001
+```
+
+**Monitoring App:**
+Use VLC on smartphone to listen:
+```bash
+vlc tcp://raspberry-pi.local:5001
+```
+
+Or use monitoring server with volume-based alerts.
+
+### Example 3: Wildlife Audio Monitoring
+
+**Hardware:**
+- Outdoor microphone (weatherproof)
+- Raspberry Pi 4 with LTE hat (cellular)
+- Solar panel + battery
+
+**Configuration:**
+- **Sample Rate**: 44.1 kHz (birdsong analysis)
+- **Silence Detection**: ✅ Enabled (save bandwidth/battery)
+- **Threshold**: 100 RMS (sensitive to quiet sounds)
+- **Connection**: VPN over LTE
+- **Server**: Cloud VPS or home server
+
+**Power Management:**
+```bash
+# Cron job: Stream only during daytime
+0 6 * * * systemctl start tcp-streamer  # 6 AM
+0 20 * * * systemctl stop tcp-streamer  # 8 PM
+```
+
+## Performance and Bandwidth
+
+### Bandwidth Requirements
+
+**Per-stream (48 kHz stereo PCM):**
+- **Bitrate**: 1536 kbps (1.5 Mbps)
+- **Per hour**: ~691 MB
+- **Per day (24/7)**: ~16.6 GB
+- **Per month**: ~500 GB
+
+**With Silence Detection (typical 70% reduction):**
+- **Per hour**: ~207 MB
+- **Per day**: ~5 GB
+- **Per month**: ~150 GB
+
+**Multiple Streams:**
+
+| Streams | 24/7 (GB/month) | With Silence Detection |
+|---------|----------------|------------------------|
+| 1 | 500 GB | 150 GB |
+| 4 | 2 TB | 600 GB |
+| 8 | 4 TB | 1.2 TB |
+| 16 | 8 TB | 2.4 TB |
+
+<Tip>
+Enable **Silence Detection** for monitoring applications to dramatically reduce bandwidth and storage requirements.
+</Tip>
+
+### Storage Requirements
+
+**Recording to disk:**
+- **Format**: WAV (uncompressed PCM)
+- **48 kHz stereo**: 10.3 MB per minute
+- **1 hour**: 619 MB
+- **24 hours**: 14.9 GB
+
+**Compression options:**
+
+```bash
+# Convert to MP3 (90% reduction)
+ffmpeg -i recording.wav -codec:a libmp3lame -b:a 128k recording.mp3
+
+# Convert to Opus (95% reduction, better quality)
+ffmpeg -i recording.wav -codec:a libopus -b:a 64k recording.opus
+```
+
+## Troubleshooting
+
+### Remote Device Can't Connect
+
+**Problem**: TCP Streamer shows "Connection refused" or "Connection timeout"
+
+**Solutions**:
+1. **Check server is listening**:
+   ```bash
+   sudo netstat -tulpn | grep 5001
+   ```
+2. **Test network connectivity**:
+   ```bash
+   ping monitoring-server-ip
+   telnet monitoring-server-ip 5001
+   ```
+3. **Verify firewall rules**:
+   ```bash
+   sudo ufw status
+   sudo ufw allow 5001/tcp
+   ```
+4. **Check port forwarding** (if using public IP)
+
+### Audio Quality Issues
+
+**Problem**: Distorted or garbled audio on monitoring server
+
+**Solutions**:
+- Verify sample rate matches on both ends (48 kHz)
+- Check for network packet loss: `ping -c 100 server-ip`
+- Increase TCP Streamer ring buffer to 5000-8000ms
+- Reduce buffer size to 512 if latency is critical
+
+### Frequent Disconnections
+
+**Problem**: TCP Streamer disconnects and reconnects repeatedly
+
+**Solutions**:
+- Enable **Auto-reconnect** in TCP Streamer
+- Increase network timeout on server side
+- Check for ISP connection issues
+- Use VPN for more stable connection
+- Monitor server resources (CPU/RAM)
+
+### High Bandwidth Usage
+
+**Problem**: Using too much data (cellular/metered connections)
+
+**Solutions**:
+1. **Enable Silence Detection**:
+   - Threshold: 100-200 RMS
+   - Timeout: 10-30 seconds
+2. **Lower Sample Rate**:
+   - Use 44.1 kHz or 32 kHz instead of 48 kHz
+3. **Compress on Server**:
+   - Record to compressed format (MP3/Opus)
+4. **Schedule Recording**:
+   - Only stream during specific hours
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Silence Detection" icon="volume-xmark" href="/features/silence-detection">
+    Reduce bandwidth with smart silence detection
+  </Card>
+  <Card title="Network Settings" icon="network-wired" href="/configuration/network-settings">
+    Optimize for remote connections
+  </Card>
+  <Card title="Auto-Reconnect" icon="rotate" href="/configuration/automation">
+    Configure reliable 24/7 streaming
+  </Card>
+  <Card title="Performance Optimization" icon="gauge-high" href="/troubleshooting/performance">
+    Troubleshoot high CPU/bandwidth usage
+  </Card>
+</CardGroup>

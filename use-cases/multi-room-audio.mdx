@@ -1,0 +1,501 @@
+---
+title: 'Multi-Room Audio Distribution'
+description: 'Set up synchronized audio streaming across multiple rooms using TCP Streamer and relay servers'
+---
+
+## Overview
+
+Multi-room audio allows you to stream audio from a single source (your computer) to multiple speakers in different rooms, with synchronized playback. TCP Streamer can be configured to distribute audio across your home using various architectures.
+
+<Info>
+**Use Cases:**
+- Whole-home audio for parties or background music
+- Synchronized audio for movies across multiple rooms
+- Distributed PA system for announcements
+- Multi-zone DJ setups
+</Info>
+
+## Distribution Architectures
+
+### Architecture 1: Snapcast Server Hub (Recommended)
+
+The most reliable and feature-rich approach uses Snapcast as a central distribution server.
+
+```
+                          ┌─────────────────────┐
+                          │   TCP Streamer      │
+                          │   (Music Source)    │
+                          │   192.168.1.50      │
+                          └──────────┬──────────┘
+                                     │ TCP :4953
+                                     ▼
+                          ┌─────────────────────┐
+                          │  Snapcast Server    │
+                          │  192.168.1.100      │
+                          │  (Raspberry Pi)     │
+                          └──────────┬──────────┘
+                                     │ WiFi
+                    ┌────────────────┼────────────────┐
+                    ▼                ▼                ▼
+            ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+            │   Client 1   │ │   Client 2   │ │   Client 3   │
+            │ Living Room  │ │   Kitchen    │ │   Bedroom    │
+            │ :1704        │ │   :1704      │ │   :1704      │
+            └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+**Benefits:**
+- Perfect synchronization (microsecond accuracy)
+- Individual volume control per room
+- Client-side buffering for network resilience
+- Web UI for management
+- Free and open source
+
+### Architecture 2: Custom TCP Relay Server
+
+For custom applications or when Snapcast is not suitable, you can build a simple TCP relay server.
+
+```
+┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
+│  TCP Streamer   │      │   Relay Server   │      │    Receiver 1   │
+│  192.168.1.50   │─────▶│   192.168.1.100  │─────▶│  192.168.1.101  │
+│                 │ TCP  │   Port 8000      │      │                 │
+└─────────────────┘      └────────┬─────────┘      └─────────────────┘
+                                  │                 ┌─────────────────┐
+                                  └────────────────▶│    Receiver 2   │
+                                                    │  192.168.1.102  │
+                                                    └─────────────────┘
+```
+
+**Simple Python Relay Example:**
+```python
+import socket
+import threading
+
+clients = []
+lock = threading.Lock()
+
+def handle_client(client_socket):
+    with lock:
+        clients.append(client_socket)
+    try:
+        while True:
+            data = client_socket.recv(4096)
+            if not data:
+                break
+    finally:
+        with lock:
+            clients.remove(client_socket)
+        client_socket.close()
+
+def broadcast_audio():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('0.0.0.0', 8000))
+    server.listen(5)
+    
+    while True:
+        source, addr = server.accept()
+        print(f"Audio source connected: {addr}")
+        
+        try:
+            while True:
+                data = source.recv(4096)
+                if not data:
+                    break
+                
+                # Broadcast to all connected clients
+                with lock:
+                    for client in clients[:]:
+                        try:
+                            client.sendall(data)
+                        except:
+                            clients.remove(client)
+        finally:
+            source.close()
+
+if __name__ == '__main__':
+    threading.Thread(target=broadcast_audio, daemon=True).start()
+    
+    # Accept client connections
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('0.0.0.0', 8001))
+    server.listen(10)
+    
+    while True:
+        client, addr = server.accept()
+        print(f"Client connected: {addr}")
+        threading.Thread(target=handle_client, args=(client,), daemon=True).start()
+```
+
+### Architecture 3: Multiple Direct Connections
+
+For small setups (2-3 rooms), you can run multiple TCP Streamer instances.
+
+```
+┌─────────────────┐
+│   Audio Source  │
+│   (Computer)    │
+└────────┬────────┘
+         │
+    ┌────┴────┬────────┐
+    ▼         ▼        ▼
+┌────────┐ ┌────────┐ ┌────────┐
+│ TCP    │ │ TCP    │ │ TCP    │
+│ Stream │ │ Stream │ │ Stream │
+│ #1     │ │ #2     │ │ #3     │
+└───┬────┘ └───┬────┘ └───┬────┘
+    │          │          │
+    ▼          ▼          ▼
+  Room 1     Room 2     Room 3
+```
+
+<Warning>
+This approach lacks synchronization - each instance streams independently with slight timing differences (typically 50-200ms). Only suitable for non-critical applications.
+</Warning>
+
+## Complete Setup Guide (Snapcast Method)
+
+<Steps>
+  <Step title="Set Up Snapcast Server">
+    Install Snapcast on a central server (see [Snapcast Integration](/use-cases/snapcast) for detailed instructions).
+
+    **Quick Setup:**
+    ```bash
+    # Install Snapcast Server (Raspberry Pi/Linux)
+    wget https://github.com/badaix/snapcast/releases/download/v0.27.0/snapserver_0.27.0-1_armhf.deb
+    sudo dpkg -i snapserver_0.27.0-1_armhf.deb
+    ```
+
+    **Configure for TCP input:**
+    ```ini
+    # /etc/snapserver.conf
+    [stream]
+    source = tcp://0.0.0.0:4953?name=WholHomeAudio&sampleformat=48000:16:2
+    ```
+
+    **Start server:**
+    ```bash
+    sudo systemctl start snapserver
+    sudo systemctl enable snapserver
+    ```
+  </Step>
+
+  <Step title="Install Snapcast Clients in Each Room">
+    Install Snapclient on devices in each room (Raspberry Pi, Android phone, PC, etc.).
+
+    **Raspberry Pi:**
+    ```bash
+    wget https://github.com/badaix/snapcast/releases/download/v0.27.0/snapclient_0.27.0-1_armhf.deb
+    sudo dpkg -i snapclient_0.27.0-1_armhf.deb
+    ```
+
+    **Configure client:**
+    ```bash
+    sudo nano /etc/default/snapclient
+    ```
+
+    Set server address:
+    ```bash
+    SNAPCLIENT_OPTS="--host 192.168.1.100"
+    ```
+
+    **Start client:**
+    ```bash
+    sudo systemctl start snapclient
+    sudo systemctl enable snapclient
+    ```
+
+    **Android/iOS:**
+    - Download Snapcast app from Play Store/App Store
+    - Enter server IP: `192.168.1.100`
+  </Step>
+
+  <Step title="Configure TCP Streamer as Audio Source">
+    On your music source computer, configure TCP Streamer:
+
+    | Setting | Value |
+    |---------|-------|
+    | **Server IP** | 192.168.1.100 (Snapcast server) |
+    | **Port** | 4953 |
+    | **Sample Rate** | 48 kHz |
+    | **Buffer Size** | 1024 |
+    | **Ring Buffer** | 4000ms (WiFi) or 2000ms (Ethernet) |
+    | **Adaptive Buffer** | Enabled (2000-10000ms) |
+  </Step>
+
+  <Step title="Test Multi-Room Playback">
+    1. Start streaming from TCP Streamer
+    2. Play audio on your source computer
+    3. Verify all Snapcast clients are playing in sync
+    4. Adjust individual room volumes using Snapcast app/web UI
+  </Step>
+
+  <Step title="Fine-Tune Synchronization">
+    If rooms are slightly out of sync:
+
+    1. Open Snapcast web UI: `http://192.168.1.100:1780`
+    2. Adjust client latency for each room
+    3. Use the "Time Sync" feature to detect optimal latency
+    4. Test with a song with a strong beat
+  </Step>
+</Steps>
+
+## Room-by-Room Configuration Examples
+
+### Living Room (Primary Zone)
+
+**Hardware:**
+- Raspberry Pi 4 with HiFiBerry DAC
+- Powered bookshelf speakers
+
+**Configuration:**
+```bash
+# Snapclient with high-quality output
+SNAPCLIENT_OPTS="--host 192.168.1.100 --soundcard hw:0,0 --latency 150"
+```
+
+### Kitchen (Secondary Zone)
+
+**Hardware:**
+- Raspberry Pi Zero W
+- USB sound card
+- Small powered speaker
+
+**Configuration:**
+```bash
+# Snapclient with USB audio
+SNAPCLIENT_OPTS="--host 192.168.1.100 --soundcard hw:1,0 --latency 180"
+```
+
+### Bedroom (Mobile Zone)
+
+**Hardware:**
+- Android tablet
+- Bluetooth speaker (connected to tablet)
+
+**Configuration:**
+- Snapcast Android app
+- Server: `192.168.1.100`
+- Buffer: 200ms
+
+### Outdoor Patio (WiFi Extended Zone)
+
+**Hardware:**
+- Raspberry Pi 3B+
+- Outdoor weatherproof speaker
+- WiFi extender for coverage
+
+**Configuration:**
+```bash
+# Higher latency for WiFi reliability
+SNAPCLIENT_OPTS="--host 192.168.1.100 --soundcard hw:0,0 --latency 300"
+```
+
+**TCP Streamer Settings for Outdoor Zone:**
+- **Network Preset**: WiFi (Poor Signal)
+- **Ring Buffer**: 8000ms
+- **Adaptive Buffer**: 5000-15000ms
+
+## Volume Management
+
+### Individual Room Control
+
+Snapcast provides per-client volume control:
+
+**Web UI (Recommended):**
+1. Navigate to `http://192.168.1.100:1780`
+2. Adjust volume sliders for each room
+3. Mute specific rooms without stopping stream
+
+**Command Line:**
+```bash
+# Set living room to 80%
+snapclient --host 192.168.1.100 --volume 80
+
+# Mute kitchen
+snapclient --host 192.168.1.100 --mute
+```
+
+**Mobile App:**
+- Snapdroid (Android) or Snapcast (iOS)
+- Group management and volume control
+- Individual client adjustment
+
+### Group Volume Control
+
+Create groups for zone-based control:
+
+**Example Groups:**
+- **Downstairs**: Living Room + Kitchen
+- **Upstairs**: Bedroom + Office
+- **All**: Every room
+
+**Configure groups in Snapcast server:**
+```json
+{
+  "groups": [
+    {
+      "name": "Downstairs",
+      "clients": ["living_room", "kitchen"]
+    },
+    {
+      "name": "Upstairs",
+      "clients": ["bedroom", "office"]
+    }
+  ]
+}
+```
+
+## Network Optimization for Multi-Room
+
+### Bandwidth Calculation
+
+**Per-room bandwidth:**
+- 48 kHz stereo PCM: ~1.5 Mbps per room
+- 4 rooms = ~6 Mbps total
+- 8 rooms = ~12 Mbps total
+
+<Tip>
+Enable **Silence Detection** in TCP Streamer to reduce bandwidth during quiet periods. This can cut bandwidth by 50-70% for typical usage.
+</Tip>
+
+### WiFi Best Practices
+
+1. **Use 5 GHz WiFi** for audio devices when possible
+2. **Dedicated SSID** for audio devices
+3. **QoS Settings**: Prioritize audio traffic
+4. **Router Placement**: Central location, minimal walls
+5. **Mesh Network**: For large homes
+
+### Quality of Service (QoS)
+
+Enable in TCP Streamer's **Advanced** settings:
+
+**Recommended QoS Setting:**
+- **DSCP/TOS**: VoIP (EF - Expedited Forwarding)
+- **Value**: 46
+
+This prioritizes audio packets over other network traffic.
+
+### Wired vs Wireless Performance
+
+| Connection Type | Expected Latency | Reliability | Recommended Buffer |
+|----------------|------------------|-------------|--------------------|
+| **Gigabit Ethernet** | ~2 seconds | Excellent | 2000ms |
+| **100 Mbps Ethernet** | ~2-3 seconds | Excellent | 2000ms |
+| **5 GHz WiFi (Close)** | ~4 seconds | Good | 4000ms |
+| **5 GHz WiFi (Far)** | ~6-8 seconds | Fair | 6000-8000ms |
+| **2.4 GHz WiFi** | ~8-12 seconds | Fair-Poor | 8000-15000ms |
+
+## Troubleshooting Multi-Room Issues
+
+### Audio Out of Sync Between Rooms
+
+**Problem**: Rooms playing at different times (> 100ms difference)
+
+**Solutions**:
+1. Use Snapcast's automatic time synchronization
+2. Manually adjust client latency in web UI
+3. Ensure all clients are on same network (no VLANs causing delays)
+4. Check for network congestion during playback
+
+### Specific Room Drops Out
+
+**Problem**: One room loses audio intermittently
+
+**Solutions**:
+1. Check WiFi signal strength in that room
+2. Increase client buffer in Snapcast: `--latency 300`
+3. Use wired Ethernet for that room if possible
+4. Restart Snapclient service: `sudo systemctl restart snapclient`
+
+### All Rooms Stutter Simultaneously
+
+**Problem**: All rooms experience audio dropouts at the same time
+
+**Solutions**:
+1. Issue is at the source (TCP Streamer)
+2. Increase TCP Streamer ring buffer to 6000-8000ms
+3. Enable adaptive buffering
+4. Check source computer CPU usage (should be < 50%)
+5. Close bandwidth-heavy applications on source computer
+
+### High Latency (> 10 seconds)
+
+**Problem**: Audio plays many seconds after it's generated
+
+**Solutions**:
+1. Reduce TCP Streamer ring buffer if network is stable
+2. Reduce Snapclient buffer: `--latency 100`
+3. Use wired Ethernet connections
+4. Disable adaptive buffering and set fixed buffer
+
+<Warning>
+Lower latency increases risk of dropouts. Find the balance between latency and reliability for your network.
+</Warning>
+
+## Advanced: Multi-Source Setup
+
+Configure multiple audio sources (different computers) to Snapcast:
+
+**Snapcast Server Configuration:**
+```ini
+[stream]
+source = tcp://0.0.0.0:4953?name=MainPC&sampleformat=48000:16:2
+source = tcp://0.0.0.0:4954?name=StudioPC&sampleformat=48000:16:2
+source = tcp://0.0.0.0:4955?name=GuestPC&sampleformat=48000:16:2
+```
+
+**TCP Streamer Profiles:**
+
+| Computer | Profile Name | Port | Use Case |
+|----------|-------------|------|----------|
+| Main PC | Home-Main | 4953 | Movies, music |
+| Studio PC | Studio-Source | 4954 | DJ mixes |
+| Guest PC | Guest-Stream | 4955 | Guest audio |
+
+**Switching Sources:**
+Clients can select which stream to play using Snapcast app, allowing different rooms to play different sources.
+
+## Performance Monitoring
+
+**TCP Streamer Metrics:**
+- **Bitrate**: Should be steady at ~1536 kbps (48 kHz)
+- **Network Quality**: "Good" or better
+- **Buffer Usage**: 30-70% (adaptive range)
+- **Uptime**: Track reliability
+
+**Snapcast Server Monitoring:**
+```bash
+# Check connected clients
+sudo systemctl status snapserver
+
+# View logs
+sudo journalctl -u snapserver -f
+```
+
+**Network Monitoring:**
+```bash
+# Monitor bandwidth usage
+sudo iftop -i wlan0
+
+# Check packet loss
+ping -c 100 192.168.1.100
+```
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Snapcast Integration" icon="server" href="/use-cases/snapcast">
+    Detailed Snapcast server setup guide
+  </Card>
+  <Card title="Network Settings" icon="network-wired" href="/configuration/network-settings">
+    Optimize network performance
+  </Card>
+  <Card title="Adaptive Buffering" icon="chart-line" href="/features/adaptive-buffering">
+    Automatic buffer adjustment
+  </Card>
+  <Card title="Advanced Configuration" icon="sliders" href="/configuration/advanced">
+    QoS, DSCP, and advanced options
+  </Card>
+</CardGroup>

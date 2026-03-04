@@ -1,0 +1,405 @@
+---
+title: 'Real-Time Audio Streaming'
+description: 'Learn how TCP Streamer delivers low-latency PCM audio over TCP with precision timing and token bucket pacing'
+---
+
+## Overview
+
+TCP Streamer implements a sophisticated audio streaming pipeline that captures audio from input devices and transmits raw PCM data over TCP with minimal latency. The system uses a lock-free ring buffer architecture and precision timing to ensure smooth, consistent audio delivery.
+
+## Audio Pipeline Architecture
+
+The streaming system consists of two independent threads:
+
+```rust
+Input Device → cpal → Producer → Ring Buffer → Consumer (Thread) → TCP Stream
+```
+
+### Producer Thread (Audio Capture)
+- Captures audio via the `cpal` library (cross-platform audio)
+- Converts all input formats (F32, I16, U16) to internal F32 format
+- Pushes audio frames to a lock-free ring buffer
+- Runs at the device's native sample rate and buffer size
+
+### Consumer Thread (Network Transmission)
+- Reads audio chunks from the ring buffer
+- Converts F32 samples back to I16 PCM for transmission
+- Sends data over TCP with precision pacing
+- Monitors network quality and adjusts behavior dynamically
+
+## PCM Audio Format
+
+TCP Streamer transmits audio in raw PCM format:
+
+<CodeGroup>
+```rust Audio Format Specification
+// Output Format (Network Edge)
+Format: Raw PCM
+Bit Depth: 16-bit signed integers (I16)
+Byte Order: Little-endian
+Channels: 2 (stereo)
+Sample Rates: 44.1 kHz or 48 kHz
+
+// Internal Processing Format
+Internal Format: 32-bit floating point (F32)
+Range: -1.0 to +1.0 (normalized)
+```
+
+```rust Conversion Code
+// F32 → I16 conversion (audio.rs:776-778)
+let sample = temp_buffer[i].clamp(-1.0, 1.0);
+let sample_i16 = (sample * 32767.0) as i16;
+payload.extend_from_slice(&sample_i16.to_le_bytes());
+```
+</CodeGroup>
+
+### Why F32 Internally?
+
+As of version 1.8.0, TCP Streamer uses native F32 processing throughout the pipeline:
+
+<AccordionGroup>
+  <Accordion title="Benefits of F32 Architecture">
+    - **Eliminates clipping**: F32 provides headroom beyond ±1.0 for intermediate calculations
+    - **Better precision**: No quantization errors during processing
+    - **Linux compatibility**: PipeWire and PulseAudio prefer F32 natively
+    - **Future-proof**: Enables potential DSP features without format conversions
+  </Accordion>
+  
+  <Accordion title="Platform-Specific Format Detection">
+    The system automatically detects the best input format (audio.rs:1023-1042):
+    
+    **Priority Order:**
+    1. F32 (preferred - native on PipeWire/Linux)
+    2. I16 (standard - WASAPI/CoreAudio)
+    3. U16 (fallback)
+    
+    Loopback devices on Windows may only support specific formats, so the system uses relaxed format matching.
+  </Accordion>
+</AccordionGroup>
+
+## Token Bucket Pacing Algorithm
+
+To prevent network micro-bursts and ensure mathematically perfect timing, TCP Streamer uses a **Strict Clock Strategy** for transmission pacing.
+
+### How It Works
+
+<Steps>
+  <Step title="Calculate Tick Duration">
+    Each audio chunk has a precise duration based on sample rate:
+    
+    ```rust
+    // audio.rs:594-596
+    let tick_duration = Duration::from_micros(
+        (chunk_size as u64 * 1_000_000) / sample_rate as u64
+    );
+    let mut next_tick = Instant::now();
+    ```
+    
+    **Example:** At 48 kHz with 1024-sample chunks:
+    - Tick duration = (1024 × 1,000,000) / 48,000 = **21,333 microseconds** (21.3ms)
+  </Step>
+  
+  <Step title="Sleep Until Next Tick">
+    The network thread sleeps precisely until the next scheduled transmission:
+    
+    ```rust
+    // audio.rs:625-637
+    if now < next_tick {
+        thread::sleep(next_tick - now);
+        next_tick += tick_duration;
+    } else {
+        // Massive lag detected (>200ms), reset clock
+        if now.duration_since(next_tick) > Duration::from_millis(200) {
+            next_tick = Instant::now() + tick_duration;
+        } else {
+            next_tick += tick_duration;
+        }
+    }
+    ```
+  </Step>
+  
+  <Step title="Adaptive Drain Mode">
+    If the buffer fills beyond the high water mark, the system enters **drain mode**:
+    
+    ```rust
+    // audio.rs:605-612
+    let high_water_mark = prefill_samples + (sample_rate as usize / 10);
+    if current_buffered > high_water_mark && current_stream.is_some() {
+        // DRAIN MODE: Process immediately, reset next_tick
+        next_tick = now + tick_duration;
+    }
+    ```
+    
+    This prevents buffer overflow while maintaining smooth playback.
+  </Step>
+</Steps>
+
+<Info>
+**Why Precision Matters:** Without strict pacing, the network thread would send bursts of packets, causing jitter spikes and potential buffer underruns on the receiver side. The token bucket algorithm ensures consistent packet timing with sub-millisecond accuracy.
+</Info>
+
+## Prefill Gate (Startup Buffering)
+
+To eliminate "cold start" stuttering, TCP Streamer implements a **prefill gate** that waits for the buffer to fill before transmission begins (v1.8.1).
+
+```rust
+// audio.rs:572-590
+let prefill_samples = sample_rate as usize * 1; // 1000ms of audio
+
+emit_log(&app_handle_net, "info",
+    format!("Buffering... waiting for {} samples (1000ms)", prefill_samples)
+);
+
+while cons.len() < prefill_samples && is_running_clone.load(Ordering::Relaxed) {
+    thread::sleep(Duration::from_millis(10));
+}
+
+emit_log(&app_handle_net, "success",
+    "Buffer prefilled! Starting transmission.".to_string()
+);
+```
+
+### Configuration
+
+| Parameter | Value | Purpose |
+|-----------|-------|----------|
+| **Prefill Duration** | 1000ms | Ensures stable startup across all platforms |
+| **Check Interval** | 10ms | Polling frequency for buffer level |
+| **Platforms** | Windows, Linux, macOS | Works equally on all operating systems |
+
+<Warning>
+**Trade-off:** The prefill gate adds ~1 second of startup latency, but this is essential for preventing audio glitches during the critical first moments of streaming. Once streaming, latency is determined by the ring buffer size (typically 2-8 seconds).
+</Warning>
+
+## Connection Management
+
+TCP Streamer uses advanced socket configuration for reliable streaming:
+
+### Socket Options
+
+```rust
+// audio.rs:706-734
+let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))?;
+
+// Large send buffer (1MB) to absorb OS scheduling jitter
+socket.set_send_buffer_size(1024 * 1024)?;
+
+// TCP Keepalive to detect dead connections
+let keepalive = TcpKeepalive::new()
+    .with_time(Duration::from_secs(5))
+    .with_interval(Duration::from_secs(2));
+socket.set_tcp_keepalive(&keepalive)?;
+
+// DSCP/TOS for QoS tagging
+let tos_value = match dscp_strategy.as_str() {
+    "voip" => 0xB8,       // EF (Expedited Forwarding)
+    "lowdelay" => 0x10,   // IPTOS_LOWDELAY
+    "throughput" => 0x08, // IPTOS_THROUGHPUT
+    "besteffort" => 0x00,
+    _ => 0xB8,
+};
+socket.set_tos(tos_value)?;
+
+// Disable Nagle's algorithm for low latency
+stream.set_nodelay(true)?;
+
+// Write timeout to detect hangs
+stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+```
+
+### Graceful Shutdown
+
+To prevent zombie connections, TCP Streamer explicitly sends TCP FIN packets:
+
+```rust
+// audio.rs:334-357
+fn close_tcp_stream(stream: TcpStream, context: &str, app_handle: &AppHandle) {
+    use std::net::Shutdown;
+    
+    if let Err(e) = stream.shutdown(Shutdown::Both) {
+        emit_log(app_handle, "debug",
+            format!("TCP shutdown {} ({}): socket may already be closed", context, e)
+        );
+    } else {
+        emit_log(app_handle, "debug",
+            format!("TCP connection closed gracefully ({})", context)
+        );
+    }
+}
+```
+
+### Auto-Reconnect Logic
+
+When disconnected, TCP Streamer uses exponential backoff with jitter:
+
+```rust
+// audio.rs:537-552
+let mut retry_delay = Duration::from_secs(2); // Minimum 2s to prevent storms
+const MAX_RETRY_DELAY: Duration = Duration::from_secs(60);
+
+// Add ±500ms jitter to prevent thundering herd
+fn add_jitter(base: Duration) -> Duration {
+    let jitter_ms = (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() % 1000) as i64 - 500;
+    let ms = base.as_millis() as i64 + jitter_ms;
+    Duration::from_millis(ms.max(2000) as u64)
+}
+```
+
+**Backoff Sequence:** 2s → 4s → 8s → 16s → 32s → 60s (max)
+
+## Configuration Options
+
+### Sample Rates
+
+<CardGroup cols={2}>
+  <Card title="44.1 kHz" icon="music">
+    - Standard CD quality
+    - 1,411.2 kbps bitrate (stereo, 16-bit)
+    - Ideal for music playback
+  </Card>
+  
+  <Card title="48 kHz" icon="waveform-lines">
+    - Professional audio standard
+    - 1,536 kbps bitrate (stereo, 16-bit)
+    - Recommended for modern systems
+  </Card>
+</CardGroup>
+
+### Buffer Sizes (Hardware Latency)
+
+| Buffer Size | Latency (48kHz) | Use Case |
+|-------------|-----------------|----------|
+| 256 samples | 5.3ms | Ultra-low latency (may cause dropouts) |
+| 512 samples | 10.7ms | Low latency (balanced) |
+| 1024 samples | 21.3ms | Standard (recommended) |
+| 2048 samples | 42.7ms | High stability (WiFi/loaded systems) |
+
+<Note>
+**WASAPI Loopback:** On Windows loopback mode, TCP Streamer uses `BufferSize::Default` (audio.rs:1078-1082) because fixed buffer sizes often fail with loopback devices. The system relies on the larger ring buffer for stability instead.
+</Note>
+
+### Ring Buffer Duration
+
+The ring buffer absorbs network jitter and provides latency tolerance:
+
+```rust
+// audio.rs:449-466
+let adjusted_ring_buffer_duration_ms = if is_loopback {
+    8000.max(ring_buffer_duration_ms)  // WASAPI: 8000ms default
+} else {
+    5000.max(ring_buffer_duration_ms)  // Standard: 5000ms default
+};
+
+let ring_buffer_size = (sample_rate as usize) * 2 
+                     * (adjusted_ring_buffer_duration_ms as usize) / 1000;
+```
+
+**Recommended Values:**
+- **Ethernet (wired):** 2000ms
+- **WiFi (standard):** 4000-5000ms  
+- **WiFi (poor signal):** 8000ms+
+- **WASAPI Loopback:** 8000ms (accounts for Windows timing variability)
+
+## Performance Characteristics
+
+### CPU Usage
+
+<Info>
+**Typical CPU Load:**
+- Producer thread: &lt;1% CPU (audio capture is hardware-accelerated)
+- Consumer thread: 1-3% CPU (depends on chunk size and sample rate)
+- Total: ~2-4% CPU on modern systems
+</Info>
+
+### Memory Usage
+
+Ring buffer memory consumption:
+
+```
+Buffer Size (bytes) = sample_rate × 2 channels × 4 bytes/sample × duration_seconds
+
+Examples:
+- 2000ms @ 48kHz: 48,000 × 2 × 4 × 2 = 768 KB
+- 8000ms @ 48kHz: 48,000 × 2 × 4 × 8 = 3.07 MB
+```
+
+### Latency Breakdown
+
+<Steps>
+  <Step title="Capture Latency">
+    Hardware buffer size (5-43ms depending on setting)
+  </Step>
+  <Step title="Ring Buffer Latency">
+    Configured duration (2000-8000ms typical)
+  </Step>
+  <Step title="Network Transmission">
+    Depends on network quality (typically &lt;10ms on LAN)
+  </Step>
+  <Step title="Total End-to-End">
+    2-8 seconds typical (dominated by ring buffer for stability)
+  </Step>
+</Steps>
+
+<Warning>
+**Latency vs Stability Trade-off:** TCP Streamer prioritizes **stability over latency**. The large ring buffer ensures dropout-free playback even on WiFi networks with occasional jitter spikes. For synchronized multi-room audio (e.g., Snapcast), this latency is acceptable and consistent across all clients.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Audio dropouts or stuttering">
+    **Causes:**
+    - Ring buffer too small for network conditions
+    - CPU throttling (especially on laptops)
+    - Network congestion
+    
+    **Solutions:**
+    - Increase ring buffer duration to 8000ms or higher
+    - Enable adaptive buffering (see [Adaptive Buffering](/features/adaptive-buffering))
+    - Use Ethernet instead of WiFi if possible
+    - Enable high-priority thread option in Advanced settings
+  </Accordion>
+  
+  <Accordion title="Connection keeps dropping">
+    **Causes:**
+    - Server not responding
+    - Firewall blocking connection
+    - Write timeout triggered (5s)
+    
+    **Solutions:**
+    - Enable auto-reconnect in Automation settings
+    - Check server logs for errors
+    - Verify firewall rules allow TCP on the specified port
+    - Test with `nc -l <port>` to verify TCP connectivity
+  </Accordion>
+  
+  <Accordion title="High CPU usage">
+    **Causes:**
+    - Small chunk size (more frequent processing)
+    - Low hardware buffer size (more audio callbacks)
+    
+    **Solutions:**
+    - Increase chunk size to 2048 or 4096 in Advanced tab
+    - Increase hardware buffer size to 1024 or 2048
+    - Disable high-priority thread if not needed
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Silence Detection" icon="volume-xmark" href="/features/silence-detection">
+    Learn how RMS-based silence detection saves bandwidth
+  </Card>
+  
+  <Card title="Adaptive Buffering" icon="chart-line" href="/features/adaptive-buffering">
+    Automatic buffer sizing based on network jitter
+  </Card>
+  
+  <Card title="Profiles" icon="layer-group" href="/features/profiles">
+    Save configurations for different streaming scenarios
+  </Card>
+</CardGroup>

@@ -1,0 +1,440 @@
+---
+title: "Windows Setup Guide"
+description: "Complete guide for installing and configuring TCP Streamer on Windows with WASAPI loopback support"
+---
+
+## Overview
+
+TCP Streamer on Windows provides native system audio capture through WASAPI loopback mode, eliminating the need for virtual audio cables in most scenarios. This guide covers installation, audio configuration, and Windows-specific optimizations.
+
+## Installation
+
+### Download & Install
+
+<Steps>
+  <Step title="Download the installer">
+    Download the latest Windows installer from the [Releases Page](https://github.com/NaturalDevCR/TCP-Streamer/releases).
+    
+    Choose between:
+    - `.msi` - Standard Windows installer (recommended)
+    - `.exe` - Portable executable
+  </Step>
+
+  <Step title="Run the installer">
+    Double-click the downloaded `.msi` file and follow the installation wizard.
+    
+    The application will be installed to:
+    ```
+    C:\Program Files\TCP Streamer\
+    ```
+  </Step>
+
+  <Step title="Launch the application">
+    Find TCP Streamer in your Start Menu or double-click the desktop shortcut.
+  </Step>
+</Steps>
+
+### System Requirements
+
+- **OS**: Windows 10 or Windows 11
+- **RAM**: 100 MB minimum
+- **Audio**: WASAPI-compatible audio device
+- **Network**: Stable connection to TCP server
+
+## Audio Capture Methods
+
+### WASAPI Loopback (Recommended)
+
+Windows includes native system audio capture through WASAPI loopback mode. This is the easiest method for capturing "what you hear" without additional software.
+
+<Note>
+  **Important**: You must have speakers or headphones plugged in for WASAPI loopback to capture audio. The loopback device mirrors the output device.
+</Note>
+
+#### Enable WASAPI Loopback
+
+<Steps>
+  <Step title="Select your output device">
+    In the **Input Device** dropdown, select your speakers or headphones.
+  </Step>
+
+  <Step title="Enable loopback mode">
+    Check the **"Enable Loopback (Windows)"** checkbox.
+    
+    This tells the application to capture the audio output instead of input.
+  </Step>
+
+  <Step title="Verify audio capture">
+    Play audio on your computer and watch the real-time volume indicator to confirm capture is working.
+  </Step>
+</Steps>
+
+#### WASAPI Loopback Characteristics
+
+- **Latency**: Higher than virtual cables (4-12 seconds typical)
+- **Buffer Requirements**: Larger buffers needed for stability
+- **CPU Usage**: Very low
+- **Quality**: Perfect digital copy of system audio
+- **Network Sensitivity**: More sensitive to WiFi jitter than other methods
+
+### Virtual Audio Cable (Alternative)
+
+For lower latency or more control, use virtual audio cable software:
+
+**Popular Options:**
+- [VB-Audio Cable](https://vb-audio.com/Cable/) (Free)
+- [VoiceMeeter](https://vb-audio.com/Voicemeeter/) (Advanced routing)
+
+<Steps>
+  <Step title="Install virtual cable software">
+    Download and install VB-Audio Cable or similar software.
+  </Step>
+
+  <Step title="Set as default output">
+    In Windows Sound Settings:
+    1. Right-click the speaker icon in taskbar
+    2. Select **Sound Settings**
+    3. Set the virtual cable as your default output device
+  </Step>
+
+  <Step title="Select in TCP Streamer">
+    Choose the virtual cable device from the Input Device dropdown.
+    
+    **Do not** enable loopback mode when using virtual cables.
+  </Step>
+</Steps>
+
+## Configuration
+
+### Optimal Settings for WASAPI Loopback
+
+WASAPI loopback requires larger buffers due to timing variability:
+
+<Tabs>
+  <Tab title="Ethernet (Wired)">
+    **For stable wired connections:**
+    
+    - **Sample Rate**: 48 kHz
+    - **Buffer Size**: 1024 samples
+    - **Ring Buffer**: 6000-8000ms
+    - **Adaptive Buffer**: Enabled
+      - Min: 4000ms
+      - Max: 12000ms
+    - **Expected Latency**: 4-6 seconds
+  </Tab>
+
+  <Tab title="WiFi (Good Signal)">
+    **For standard WiFi connections:**
+    
+    - **Sample Rate**: 48 kHz
+    - **Buffer Size**: 1024 samples
+    - **Ring Buffer**: 8000ms
+    - **Adaptive Buffer**: Enabled
+      - Min: 5000ms
+      - Max: 12000ms
+    - **Expected Latency**: 6-10 seconds
+  </Tab>
+
+  <Tab title="WiFi (Poor Signal)">
+    **For unstable or distant WiFi:**
+    
+    - **Sample Rate**: 44.1 kHz
+    - **Buffer Size**: 2048 samples
+    - **Ring Buffer**: 12000ms
+    - **Adaptive Buffer**: Enabled
+      - Min: 8000ms
+      - Max: 15000ms
+    - **Expected Latency**: 10-15 seconds
+  </Tab>
+</Tabs>
+
+### Optimal Settings for Virtual Audio Cable
+
+Virtual cables provide more predictable timing:
+
+- **Sample Rate**: 48 kHz
+- **Buffer Size**: 512 or 1024 samples
+- **Ring Buffer**: 2000-5000ms
+- **Adaptive Buffer**: Enabled (2000ms - 6000ms)
+- **Expected Latency**: 2-4 seconds
+
+### Network Presets
+
+Use the **Advanced** tab network presets for quick configuration:
+
+| Preset | Ring Buffer | Chunk Size | Adaptive Range | Best For |
+|--------|-------------|------------|----------------|----------|
+| **Ethernet** | 2000ms | 512 | 2-6s | Wired + Virtual Cable |
+| **WiFi** | 4000ms | 1024 | 3-10s | WiFi + Virtual Cable |
+| **WiFi (Poor)** | 8000ms | 2048 | 5-15s | WASAPI or poor WiFi |
+
+<Note>
+  The application automatically selects appropriate default buffers when you enable WASAPI loopback mode (8000ms base).
+</Note>
+
+## Performance & Optimization
+
+### CPU Usage
+
+TCP Streamer is extremely lightweight on Windows:
+
+- **Idle**: &lt;1% CPU
+- **Streaming (WASAPI)**: 1-3% CPU
+- **Memory**: 2-3 MB typical, up to 10 MB with large buffers
+
+### Reducing CPU Usage
+
+If you experience high CPU usage:
+
+1. **Increase buffer size** to 2048 samples
+2. **Lower sample rate** to 44.1 kHz if 48 kHz is unnecessary
+3. **Disable high priority thread** in Advanced settings
+4. Close other audio applications that may compete for the audio device
+
+### Network Quality
+
+Monitor the **Network Quality** indicator in the Statistics tab:
+
+- **Excellent**: &lt;5ms jitter - Perfect streaming
+- **Good**: 5-15ms jitter - Stable, minimal buffer adjustments
+- **Fair**: 15-30ms jitter - Adaptive buffer actively managing
+- **Poor**: >30ms jitter - Consider wired connection or larger buffers
+
+## Troubleshooting
+
+### WASAPI Loopback Stuttering
+
+**Symptoms**: Audio cuts out, stutters, or has periodic dropouts
+
+**Solutions**:
+
+<Steps>
+  <Step title="Enable adaptive buffer">
+    Navigate to **Audio Settings** and enable **Adaptive Buffer**.
+    
+    Set:
+    - Min: 5000ms
+    - Max: 15000ms
+  </Step>
+
+  <Step title="Increase ring buffer">
+    Manually set Ring Buffer to 10000ms or higher.
+  </Step>
+
+  <Step title="Use network preset">
+    Apply the **WiFi (Poor Signal)** preset in the Advanced tab, even for wired connections.
+  </Step>
+
+  <Step title="Check CPU throttling">
+    On laptops, disable CPU power saving:
+    
+    1. Control Panel → Power Options
+    2. Select "High Performance" plan
+    3. Ensure "Minimum processor state" is 100%
+  </Step>
+</Steps>
+
+<Note>
+  WASAPI loopback trades latency for reliability. If you need &lt;4 second latency, use a virtual audio cable instead.
+</Note>
+
+### Audio Device Not Found
+
+**Problem**: Your audio device doesn't appear in the dropdown
+
+**Solutions**:
+
+1. **Check device is enabled**:
+   - Right-click speaker icon → **Sound Settings**
+   - Ensure the device is enabled and not disabled
+
+2. **Restart the application** after connecting new audio devices
+
+3. **Check for exclusive mode conflicts**:
+   - Right-click speaker icon → **Sound Settings** → **Device Properties**
+   - Under **Advanced**, uncheck "Allow applications to take exclusive control"
+
+4. **Update audio drivers** from your device manufacturer
+
+### Connection Fails
+
+**Problem**: "Failed to connect to TCP server"
+
+**Solutions**:
+
+<Steps>
+  <Step title="Verify server is running">
+    Ensure your TCP server (e.g., Snapcast) is running and listening on the specified port.
+  </Step>
+
+  <Step title="Check Windows Firewall">
+    Add an exception for TCP Streamer:
+    
+    1. Windows Security → Firewall & Network Protection
+    2. Allow an app through firewall
+    3. Add TCP Streamer
+  </Step>
+
+  <Step title="Test connectivity">
+    Open Command Prompt and test the connection:
+    
+    ```bash
+    telnet [server-ip] [port]
+    ```
+    
+    If this fails, the issue is network-related, not TCP Streamer.
+  </Step>
+
+  <Step title="Try localhost">
+    If the server is on the same machine, use:
+    - IP: `127.0.0.1` or `localhost`
+  </Step>
+</Steps>
+
+### No Audio Streaming (Connected but Silent)
+
+**Problem**: Connection established but server receives no audio
+
+**Possible Causes**:
+
+1. **Silence detection is working correctly** - No audio is playing
+2. **Audio input is muted** or volume too low
+3. **Wrong device selected** - Not capturing the correct audio source
+4. **Loopback not enabled** when using output device
+
+**Solutions**:
+
+- Play audio on your computer while streaming
+- Check the real-time volume indicator moves when audio plays
+- Verify silence threshold isn't set too high
+- Ensure "Enable Loopback" is checked if using speakers/headphones
+- Check Windows volume mixer (Win + G → Audio)
+
+### Permission Errors
+
+**Problem**: "Access denied" when starting stream
+
+**Solutions**:
+
+1. **Run as Administrator** (right-click → Run as administrator)
+2. **Check antivirus software** isn't blocking TCP Streamer
+3. **Reinstall** with administrator privileges
+
+### High Latency
+
+**Problem**: 10+ seconds of delay between computer and server
+
+**Expected Behavior**:
+- WASAPI loopback typically has 4-12 seconds latency
+- This is a trade-off for stability and compatibility
+
+**To Reduce Latency**:
+
+1. **Use virtual audio cable** instead of WASAPI loopback (2-4 seconds)
+2. **Use wired network** instead of WiFi
+3. **Reduce ring buffer** to minimum stable value
+4. **Disable adaptive buffer** if network is very stable
+
+## Automation
+
+### Auto-start on Windows Boot
+
+Enable **Auto-start on launch** in TCP Streamer settings:
+
+1. Navigate to **Automation** tab
+2. Enable "Start on system boot"
+3. The application will launch minimized to system tray
+
+**Manual Method**:
+
+Add TCP Streamer to Windows startup folder:
+
+```bash
+shell:startup
+```
+
+1. Press Win + R
+2. Type `shell:startup` and press Enter
+3. Create a shortcut to TCP Streamer in this folder
+
+### Auto-stream Configuration
+
+For fully automated operation:
+
+1. **Enable Auto-start on launch** - Start with Windows
+2. **Enable Auto-stream** - Begin streaming immediately
+3. **Enable Auto-reconnect** - Retry connection on failure
+4. **Set silence detection** - Stop when no audio for X seconds
+
+## Advanced Features
+
+### QoS (Quality of Service) Tagging
+
+Improve network priority by setting DSCP/TOS values:
+
+1. Navigate to **Advanced** tab
+2. Select QoS preset:
+   - **VoIP** (EF) - Highest priority
+   - **Low Delay** - Expedited forwarding
+   - **Throughput** - Bulk transfer
+
+<Note>
+  QoS requires router support and configuration to be effective.
+</Note>
+
+### High Priority Thread
+
+Reduce network jitter by elevating thread priority:
+
+1. Navigate to **Advanced** tab
+2. Enable **High Priority Thread**
+3. This may require administrator privileges
+
+**When to use**:
+- WiFi connections with variable latency
+- Systems with high background CPU usage
+- Professional audio applications
+
+**When not to use**:
+- May cause audio glitches on low-end systems
+- Unnecessary on stable wired connections
+
+## Best Practices
+
+### For Multi-room Audio (Snapcast)
+
+1. Use **WASAPI loopback** for simplicity
+2. Accept 4-6 seconds of latency (not noticeable across rooms)
+3. Enable **Auto-reconnect** for reliability
+4. Set silence timeout to 300 seconds (5 minutes)
+5. Use **WiFi (Poor)** preset for maximum stability
+
+### For Low-latency Applications
+
+1. Use **virtual audio cable** (VB-Audio)
+2. Use **wired Ethernet** connection
+3. Apply **Ethernet** preset
+4. Set buffer size to 512 samples
+5. Disable silence detection for continuous stream
+
+### For Laptop/Mobile Setups
+
+1. Use **WASAPI loopback** (no extra software)
+2. Apply **WiFi (Poor)** preset
+3. Enable **Adaptive Buffer** (5s - 15s range)
+4. Disable **High Priority Thread** to save battery
+5. Enable **Auto-reconnect** for handling network switches
+
+## Additional Resources
+
+- [General Configuration Guide](../essentials/configuration)
+- [Troubleshooting Guide](../essentials/troubleshooting)
+- [GitHub Issues](https://github.com/NaturalDevCR/TCP-Streamer/issues)
+- [Snapcast Integration](../use-cases/snapcast)
+
+---
+
+**Platform**: Windows 10/11
+**Audio API**: WASAPI
+**Native Loopback**: Yes
+**Typical Latency**: 4-12 seconds (loopback) | 2-4 seconds (virtual cable)

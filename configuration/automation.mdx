@@ -1,0 +1,430 @@
+---
+title: Automation Settings
+description: Configure auto-start on boot, automatic streaming, and connection retry behavior
+---
+
+## Overview
+
+Automation settings allow TCP Streamer to run unattended, making it ideal for headless setups, background audio distribution, and always-on streaming scenarios.
+
+## Auto-Start on Boot
+
+Launch TCP Streamer automatically when your system starts.
+
+<ParamField path="auto_start" type="boolean" default="false">
+  Enable automatic launch on system startup
+</ParamField>
+
+### How It Works
+
+TCP Streamer integrates with your operating system's autostart mechanism:
+
+- **Windows**: Adds registry entry to `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run`
+- **macOS**: Creates launch agent in `~/Library/LaunchAgents`
+- **Linux**: Adds `.desktop` file to `~/.config/autostart/`
+
+### Behavior
+
+When auto-start is enabled:
+
+1. Application launches on system boot
+2. Window opens minimized to system tray
+3. No user interaction required
+4. Waits for user to start streaming OR auto-stream triggers
+
+<Steps>
+  <Step title="Enable Auto-Start">
+    Check the **"Auto-start on launch"** checkbox in Settings tab
+  </Step>
+  <Step title="Restart System">
+    Restart your computer to test (optional)
+  </Step>
+  <Step title="Verify">
+    Check system tray for TCP Streamer icon after boot
+  </Step>
+</Steps>
+
+### Use Cases
+
+- **Home audio server**: Always available for streaming
+- **Headless systems**: No manual launch required
+- **Multi-room audio**: Ensures continuous availability
+- **Background monitoring**: Audio capture without user interaction
+
+<Warning>
+On some systems, auto-start may require administrator/root privileges during initial setup.
+</Warning>
+
+## Auto-Stream
+
+Begin streaming immediately after application starts.
+
+<ParamField path="auto_stream" type="boolean" default="false">
+  Automatically start streaming on application launch
+</ParamField>
+
+### How It Works
+
+When auto-stream is enabled:
+
+1. Application loads saved configuration from current profile
+2. Waits 500ms for device initialization
+3. Automatically clicks "Start Streaming" button
+4. Begins streaming to configured IP:Port
+
+### Requirements
+
+For auto-stream to work, you must have:
+
+- ✅ Valid input device selected
+- ✅ IP address configured
+- ✅ Port number configured
+- ✅ TCP server running and accessible
+
+<Info>
+If any required setting is missing, auto-stream will fail silently and the application will remain in "Ready" state.
+</Info>
+
+### Behavior
+
+```javascript
+if (autostreamCheck.checked && deviceSelect.value && ipInput.value) {
+  setTimeout(() => {
+    toggleStream();
+  }, 500);
+}
+```
+
+### Combined with Auto-Start
+
+For fully automated operation, enable both:
+
+```json
+{
+  "auto_start": true,
+  "auto_stream": true
+}
+```
+
+**Result**: System boots → TCP Streamer launches → Streaming begins automatically
+
+<Tip>
+Test your configuration manually before enabling auto-stream to ensure all settings are correct.
+</Tip>
+
+## Auto-Reconnect
+
+Automatically retry connection when network errors occur.
+
+<ParamField path="auto_reconnect" type="boolean" default="false">
+  Enable automatic reconnection on connection failure
+</ParamField>
+
+### How It Works
+
+When auto-reconnect is enabled:
+
+1. Detects connection failures (write errors, timeouts, socket closure)
+2. Closes TCP connection gracefully (sends FIN packet)
+3. Waits with exponential backoff
+4. Attempts to reconnect to the same IP:Port
+5. Resumes streaming if successful
+
+### Reconnection Strategy
+
+**Exponential Backoff with Jitter**:
+
+```
+Initial delay: 2 seconds (minimum)
+Max delay: 60 seconds
+Jitter: ±500ms (prevents thundering herd)
+
+Retry 1: 2s ± 500ms
+Retry 2: 4s ± 500ms
+Retry 3: 8s ± 500ms
+Retry 4: 16s ± 500ms
+Retry 5: 32s ± 500ms
+Retry 6+: 60s ± 500ms
+```
+
+### Behavior During Reconnection
+
+**Audio buffer**:
+- Continues capturing audio during reconnection
+- Drains stale audio (100ms chunks) to prevent sending old data
+- Sends fresh audio once reconnected
+
+**User interface**:
+- Status shows: "Reconnecting to [IP] (retry in Xs)..."
+- "Stop Streaming" button remains active
+- Statistics continue updating
+
+**Network thread**:
+- Remains running (does not exit)
+- Uses strict pacing during disconnect to prevent CPU spin
+- Clears buffer gradually to avoid blocking
+
+### Graceful Shutdown
+
+When connection fails, TCP Streamer:
+
+```rust
+// Send TCP FIN to server
+stream.shutdown(Shutdown::Both);
+
+// Wait 100ms for kernel to process FIN
+thread::sleep(Duration::from_millis(100));
+
+// Attempt reconnection
+```
+
+This prevents **zombie connections** where the server thinks the client is still connected.
+
+### Use Cases
+
+#### Network Interruptions
+- WiFi signal drops temporarily
+- Router restarts
+- Ethernet cable briefly unplugged
+
+#### Server Restarts
+- Snapcast server updates
+- Server maintenance windows
+- Temporary server crashes
+
+#### Development
+- Testing connection resilience
+- Server debugging sessions
+- Integration testing
+
+<Warning>
+Auto-reconnect will retry indefinitely until you manually stop streaming or close the application.
+</Warning>
+
+## Deep Sleep Mode
+
+Automatic disconnection during prolonged silence to prevent zombie connections.
+
+<ParamField path="deep_sleep" type="boolean" default="true" readonly>
+  Automatically disconnect after prolonged silence (always enabled)
+</ParamField>
+
+### How It Works
+
+Introduced in v1.6.0, Deep Sleep prevents "zombie" connections:
+
+1. Monitors audio RMS (Root Mean Square) levels
+2. Detects prolonged silence (no audio above threshold)
+3. Automatically disconnects after timeout period
+4. Reconnects when audio resumes (if auto-reconnect enabled)
+
+### Behavior
+
+**Silence detection**:
+- Threshold: RMS < 50.0
+- Timeout: Configurable (default: 60 seconds)
+
+**On timeout**:
+- Gracefully closes TCP connection
+- Logs: "Deep sleep activated (no audio)"
+- Stops sending data
+
+**On audio resume**:
+- Automatically reconnects if auto-reconnect enabled
+- Logs: "Audio detected, reconnecting..."
+- Resumes streaming
+
+<Info>
+Deep Sleep is always active and cannot be disabled. It's a core reliability feature introduced in v1.6.0.
+</Info>
+
+## Configuration Profiles
+
+Save different automation configurations for various scenarios.
+
+### Creating Automation Profiles
+
+<Steps>
+  <Step title="Create Profile">
+    Click **➕ New**, enter profile name (e.g., "Auto-Streaming"), click **✓ Create**
+  </Step>
+  <Step title="Configure Settings">
+    - Set IP address and port
+    - Select input device
+    - Enable auto-stream and auto-reconnect
+  </Step>
+  <Step title="Save Profile">
+    Click **💾 Save** to store configuration
+  </Step>
+</Steps>
+
+### Example Profiles
+
+#### Always-On Home Server
+
+```json
+{
+  "name": "Home-Server",
+  "ip": "192.168.1.100",
+  "port": 4953,
+  "device": "[Loopback] Speakers",
+  "auto_start": true,
+  "auto_stream": true,
+  "auto_reconnect": true,
+  "ring_buffer_duration": 8000
+}
+```
+
+**Use case**: Unattended home audio server that streams system audio 24/7
+
+#### Development Testing
+
+```json
+{
+  "name": "Testing",
+  "ip": "localhost",
+  "port": 9999,
+  "device": "Microphone",
+  "auto_start": false,
+  "auto_stream": false,
+  "auto_reconnect": true,
+  "ring_buffer_duration": 2000
+}
+```
+
+**Use case**: Manual testing with automatic reconnection for debugging
+
+#### Studio Monitor
+
+```json
+{
+  "name": "Studio",
+  "ip": "10.0.0.50",
+  "port": 8000,
+  "device": "Audio Interface",
+  "auto_start": true,
+  "auto_stream": false,
+  "auto_reconnect": true,
+  "ring_buffer_duration": 4000
+}
+```
+
+**Use case**: Studio monitoring system, launches on boot but waits for manual streaming start
+
+## System Tray Integration
+
+TCP Streamer always runs in the system tray, never fully quits.
+
+### Behavior
+
+**Window closing**:
+- Clicking ❌ minimizes to tray (does not quit)
+- Application continues running in background
+- Streaming continues uninterrupted
+
+**Tray menu**:
+- Right-click tray icon for options
+- "Show" - Restore window
+- "Quit" - Fully exit application
+
+**Streaming state**:
+- Tray icon changes color when streaming
+- Hover tooltip shows connection status
+
+<Warning>
+To fully quit TCP Streamer, you must use the "Quit" option in the system tray menu. Closing the window only minimizes it.
+</Warning>
+
+## Unattended Operation
+
+Complete setup guide for headless/unattended streaming.
+
+### Setup Checklist
+
+<Steps>
+  <Step title="Configure Connection">
+    Set IP address and port for your TCP server (e.g., Snapcast)
+  </Step>
+  <Step title="Select Device">
+    Choose audio input device (or enable loopback on Windows)
+  </Step>
+  <Step title="Optimize Settings">
+    - Sample Rate: 48000 Hz
+    - Buffer Size: 1024
+    - Ring Buffer: 4000-8000ms (WiFi) or 2000ms (wired)
+  </Step>
+  <Step title="Enable Automation">
+    - ✅ Auto-start on launch
+    - ✅ Auto-stream
+    - ✅ Auto-reconnect
+  </Step>
+  <Step title="Test Configuration">
+    Manually test streaming to verify all settings work correctly
+  </Step>
+  <Step title="Save Profile">
+    Save configuration to a named profile (e.g., "Production")
+  </Step>
+  <Step title="Reboot Test">
+    Restart system and verify automatic streaming begins
+  </Step>
+</Steps>
+
+### Monitoring Unattended Systems
+
+Check logs remotely to verify operation:
+
+```
+[14:32:01] INFO: Starting stream to 192.168.1.100:4953
+[14:32:01] SUCCESS: Stream started successfully
+[14:32:02] SUCCESS: Connected successfully!
+[14:32:02] SUCCESS: Buffer prefilled! Starting transmission.
+```
+
+<Tip>
+For production deployments, consider setting up remote monitoring or logging to track uptime and connection health.
+</Tip>
+
+## Troubleshooting
+
+### Auto-Start Not Working
+
+**Solutions**:
+- Verify auto-start is enabled in settings
+- Check system startup applications list
+- **Windows**: Check registry entry exists
+- **macOS**: Check Launch Agent is loaded (`launchctl list`)
+- **Linux**: Check `~/.config/autostart/` for `.desktop` file
+- Grant necessary permissions (may require admin/root)
+
+### Auto-Stream Fails Silently
+
+**Solutions**:
+- Verify device is selected
+- Verify IP and port are configured
+- Check TCP server is running before launching app
+- Look for errors in logs after 500ms delay
+- Test manual streaming first
+
+### Auto-Reconnect Not Retrying
+
+**Solutions**:
+- Verify auto-reconnect is enabled
+- Check logs for reconnection attempts
+- Ensure network is accessible
+- Verify firewall allows outbound connections
+- Check if "Stop Streaming" was clicked (disables auto-reconnect)
+
+### Connection Storms (Too Many Retries)
+
+**Symptoms**: Excessive connection attempts overwhelming server
+
+**Explanation**: Exponential backoff with jitter prevents this. If you're seeing connection storms:
+- Verify you're running v1.9.0 or later (minimum 2s delay)
+- Check that multiple instances aren't running
+- Verify jitter is working (retry delays should vary by ±500ms)
+
+## Related Settings
+
+- [Audio Settings](/configuration/audio-settings) - Configure input devices
+- [Network Settings](/configuration/network-settings) - Optimize connection reliability
+- [Advanced Settings](/configuration/advanced) - Enable adaptive buffer for unattended operation

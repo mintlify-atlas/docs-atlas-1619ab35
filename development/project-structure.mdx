@@ -1,0 +1,447 @@
+---
+title: Project Structure
+description: Understand the architecture and directory layout of TCP Streamer, including frontend, backend, and key files.
+---
+
+## Overview
+
+TCP Streamer is built with **Tauri v2**, combining a Rust backend for high-performance audio streaming with a modern web frontend for the user interface.
+
+### Technology Stack
+
+- **Frontend**: HTML, CSS, JavaScript with Vite
+- **Backend**: Rust with Tauri framework
+- **Audio**: cpal (cross-platform audio library)
+- **Storage**: tauri-plugin-store (settings persistence)
+- **Build Tool**: Vite (frontend), Cargo (backend)
+
+## Directory Layout
+
+```
+tcp-streamer/
+├── src/                      # Frontend code (HTML/CSS/JS)
+│   ├── assets/               # Static assets
+│   │   ├── logo.png         # Application logo
+│   │   ├── javascript.svg   # JavaScript icon
+│   │   └── tauri.svg        # Tauri icon
+│   ├── index.html           # Main UI layout
+│   ├── main.js              # Application logic
+│   ├── styles.css           # UI styling
+│   └── debug-store.js       # Store debugging utilities
+│
+├── src-tauri/                # Backend code (Rust)
+│   ├── src/
+│   │   ├── lib.rs           # App setup, tray, window management
+│   │   ├── audio.rs         # Audio streaming logic
+│   │   └── main.rs          # Entry point
+│   ├── Cargo.toml           # Rust dependencies
+│   ├── Cargo.lock           # Dependency lock file
+│   ├── build.rs             # Build script
+│   ├── tauri.conf.json      # Tauri configuration
+│   └── icons/               # Application icons
+│
+├── package.json             # Node.js dependencies
+├── package-lock.json        # Dependency lock file
+├── vite.config.js           # Vite configuration
+├── README.md                # Project documentation
+├── LICENSE                  # MIT License
+└── .gitignore               # Git ignore rules
+```
+
+## Frontend Architecture (`src/`)
+
+The frontend is a single-page application built with vanilla JavaScript and Vite.
+
+### Key Files
+
+#### `index.html` (42KB)
+
+The main UI layout containing:
+- Tabbed interface (Audio, Profiles, Stats, Advanced, Logs)
+- Audio device selection and configuration
+- Profile management UI
+- Real-time statistics display
+- Network quality indicators
+- Activity log viewer
+- System tray integration
+
+**Structure:**
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <!-- Metadata and styles -->
+  </head>
+  <body>
+    <div class="container">
+      <!-- Tab navigation -->
+      <!-- Audio configuration tab -->
+      <!-- Profile management tab -->
+      <!-- Statistics tab -->
+      <!-- Advanced settings tab -->
+      <!-- Logs tab -->
+    </div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
+```
+
+#### `main.js` (30KB)
+
+Application logic handling:
+- Tauri API integration
+- Event listeners for user interactions
+- State management and persistence
+- Real-time UI updates from backend events
+- Profile CRUD operations
+- Audio device enumeration
+- Streaming control (start/stop)
+- Statistics visualization
+
+**Key functions:**
+- `startStream()` - Initiates audio streaming
+- `stopStream()` - Stops streaming and cleanup
+- `loadDevices()` - Enumerates audio devices
+- `saveProfile()` - Persists configuration
+- `updateStats()` - Updates real-time statistics
+
+#### `styles.css` (19KB)
+
+Modern, responsive styling:
+- Dark theme UI
+- Tabbed navigation
+- Custom buttons and inputs
+- Volume meters and progress bars
+- Status indicators
+- Log viewer styling
+- Responsive layout
+
+## Backend Architecture (`src-tauri/`)
+
+The Rust backend handles audio capture, streaming, and system integration.
+
+### Key Files
+
+#### `lib.rs` (3.8KB)
+
+Application setup and system integration:
+- Tauri app initialization
+- System tray icon and menu
+- Window management
+- App lifecycle management
+- Command registration
+
+**Key components:**
+```rust
+#[tauri::command]
+fn get_audio_devices() -> Vec<DeviceInfo> {
+    // Enumerate audio devices
+}
+
+#[tauri::command]
+fn start_stream(config: StreamConfig) -> Result<(), String> {
+    // Start audio streaming
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    // App initialization
+}
+```
+
+#### `audio.rs` (52KB)
+
+Core audio streaming implementation:
+- Audio device management
+- Audio capture with cpal
+- Lock-free ring buffer
+- TCP connection handling
+- Silence detection
+- Adaptive buffer resizing
+- Precision timing with token bucket algorithm
+- Real-time statistics calculation
+- Network quality monitoring
+
+**Key structures:**
+```rust
+pub struct AudioStreamer {
+    // Stream state
+    device: Device,
+    config: StreamConfig,
+    ring_buffer: RingBuffer,
+    tcp_stream: TcpStream,
+}
+
+pub struct StreamStats {
+    bytes_sent: u64,
+    uptime: Duration,
+    bitrate: f64,
+    buffer_usage: f32,
+    network_quality: NetworkQuality,
+}
+```
+
+**Audio pipeline flow:**
+```rust
+// 1. Capture audio from device
+cpal::Stream → 
+
+// 2. Process and push to ring buffer
+RMS calculation → Silence detection → RingBuffer::Producer → 
+
+// 3. Network thread reads from buffer
+RingBuffer::Consumer → 
+
+// 4. Precision pacing
+Token Bucket algorithm → 
+
+// 5. Send over TCP
+TcpStream::write()
+```
+
+#### `main.rs` (187 bytes)
+
+Simple entry point:
+```rust
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+fn main() {
+    tcp_streamer_lib::run()
+}
+```
+
+### Cargo Dependencies (`Cargo.toml`)
+
+**Core dependencies:**
+- `tauri = "2"` - Application framework
+- `cpal = "0.15"` - Audio capture
+- `ringbuf = "0.3"` - Lock-free ring buffer
+- `socket2 = "0.5"` - TCP networking
+
+**Serialization:**
+- `serde = "1"` - Serialization framework
+- `serde_json = "1"` - JSON support
+
+**Plugins:**
+- `tauri-plugin-autostart = "2"` - Auto-start on boot
+- `tauri-plugin-store = "2"` - Settings persistence
+- `tauri-plugin-single-instance = "2"` - Single instance enforcement
+- `tauri-plugin-log = "2.7.1"` - Logging
+- `tauri-plugin-opener = "2"` - File/URL opening
+
+**Utilities:**
+- `chrono = "0.4"` - Date/time handling
+- `thread-priority = "3.0.0"` - Thread priority control
+- `hostname = "0.4"` - Hostname retrieval
+- `mac_address = "1.1"` - MAC address retrieval
+- `log = "0.4.28"` - Logging facade
+
+## Audio Pipeline Architecture
+
+The audio streaming pipeline is designed for low-latency, high-reliability performance.
+
+### Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Audio Input Device                         │
+│            (Microphone, Loopback, Virtual Device)               │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cpal Audio Callback                         │
+│          (Captures audio samples in real-time)                  │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    RMS Calculation                              │
+│         (Calculate volume for silence detection)                │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                    [Silence?]──────Yes──────▶ [Skip Transmission]
+                         │
+                        No
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Ring Buffer (Producer)                        │
+│        Lock-free buffer (2-15s capacity, adaptive)              │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Network Thread (Consumer)                     │
+│         Reads from ring buffer in separate thread               │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Token Bucket Pacer                           │
+│     (Precision timing to prevent bursting and jitter)           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      TCP Stream                                 │
+│          (Sends raw PCM data to server)                         │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    TCP Server                                   │
+│               (Snapcast, Custom Server, etc.)                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+**1. Audio Capture (cpal)**
+- Cross-platform audio input
+- Native support for WASAPI (Windows), CoreAudio (macOS), ALSA (Linux)
+- Configurable sample rate (44.1kHz, 48kHz)
+- Configurable buffer size (256-2048 samples)
+
+**2. Ring Buffer (ringbuf)**
+- Lock-free SPSC (Single Producer Single Consumer)
+- Absorbs network jitter
+- Adaptive sizing based on network conditions
+- Prevents audio dropouts
+
+**3. Precision Pacer**
+- Token bucket algorithm
+- Sub-millisecond timing with spin-wait
+- Eliminates micro-bursts
+- Drift-aware for long-term stability
+
+**4. Network Thread**
+- Separate thread for TCP operations
+- Non-blocking I/O
+- 5-second write timeout
+- Auto-reconnect on failure
+- Real-time statistics
+
+## Build System
+
+### Frontend Build (Vite)
+
+`vite.config.js` configures the frontend build:
+- Development server with hot-reload
+- Production optimization and bundling
+- Asset handling
+- Integration with Tauri
+
+### Backend Build (Cargo)
+
+`build.rs` runs during compilation:
+- Generates platform-specific resources
+- Embeds application icons
+- Configures Tauri build settings
+
+### Build Output
+
+**Development:**
+- Frontend: `http://localhost:5173` (dev server)
+- Backend: `src-tauri/target/debug/tcp-streamer`
+
+**Production:**
+- Frontend: Bundled into Tauri app
+- Backend: `src-tauri/target/release/tcp-streamer`
+- Installers: `src-tauri/target/release/bundle/`
+
+## Configuration Files
+
+### `package.json`
+
+Node.js project configuration:
+```json
+{
+  "name": "tcp-streamer",
+  "version": "1.9.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-store": "^2.4.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "vite": "^7.2.4"
+  }
+}
+```
+
+### `tauri.conf.json`
+
+Tauri application configuration:
+- App metadata (name, version)
+- Window settings (size, title, decorations)
+- Build settings (target platforms)
+- Plugin configuration
+- Security settings (CSP, allowlists)
+
+## State Management
+
+### Settings Persistence
+
+User settings are persisted using `tauri-plugin-store`:
+- Location: Platform-specific app data directory
+- Format: JSON
+- Auto-save on change
+
+**Stored data:**
+- Audio device selection
+- Network configuration (IP, port)
+- Audio settings (sample rate, buffer size)
+- Silence detection settings
+- Automation preferences
+- User profiles
+
+## Extension Points
+
+### Adding New Features
+
+**Frontend:**
+1. Add UI components in `index.html`
+2. Add event handlers in `main.js`
+3. Style with `styles.css`
+
+**Backend:**
+1. Define Tauri commands in `lib.rs`
+2. Implement logic in appropriate module
+3. Emit events to frontend if needed
+
+**Communication:**
+```javascript
+// Frontend → Backend (invoke command)
+await invoke('start_stream', { config });
+
+// Backend → Frontend (emit event)
+app.emit('stream_stats', stats);
+```
+
+### Adding Dependencies
+
+**JavaScript:**
+```bash
+npm install package-name
+```
+
+**Rust:**
+```toml
+# Add to src-tauri/Cargo.toml
+[dependencies]
+package-name = "version"
+```
+
+## Architecture Principles
+
+1. **Separation of Concerns**: Frontend handles UI, backend handles audio/networking
+2. **Performance**: Lock-free data structures, dedicated threads for I/O
+3. **Reliability**: Auto-reconnect, adaptive buffering, error handling
+4. **Cross-platform**: Tauri provides unified API across macOS/Windows/Linux
+5. **Modern Stack**: Rust for safety and performance, web tech for flexible UI

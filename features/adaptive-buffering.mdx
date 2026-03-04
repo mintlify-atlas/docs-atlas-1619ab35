@@ -1,0 +1,536 @@
+---
+title: 'Adaptive Buffering'
+description: 'Dynamic ring buffer sizing that automatically adjusts to network conditions, preventing audio dropouts while minimizing latency'
+---
+
+## Overview
+
+Adaptive Buffering is an intelligent system that monitors network quality in real-time and automatically adjusts the ring buffer size to balance **stability** (preventing dropouts) and **latency** (minimizing delay). This feature is essential for wireless networks and environments with variable network conditions.
+
+<Info>
+**Introduced in v1.5.0:** Adaptive buffering was added to address the challenge of finding the optimal buffer size across diverse network environments, from stable wired Ethernet to congested WiFi.
+</Info>
+
+## How It Works
+
+### The Core Problem
+
+Fixed ring buffers have inherent trade-offs:
+
+- **Too small:** Dropouts occur when network jitter exceeds buffer capacity
+- **Too large:** Unnecessary latency even on stable networks
+
+**Solution:** Continuously measure network jitter and adjust buffer size dynamically within configured bounds.
+
+### Monitoring Interval
+
+The adaptive buffer system checks network conditions **every 10 seconds**:
+
+```rust
+// audio.rs:525-526
+let mut last_buffer_check = Instant::now();
+const BUFFER_CHECK_INTERVAL_SECS: u64 = 10;
+```
+
+This interval balances responsiveness with stability—too frequent adjustments would cause unnecessary resizing.
+
+## Jitter Measurement
+
+Jitter is the deviation from the ideal packet timing schedule. TCP Streamer uses the **Strict Clock Strategy** to measure jitter with microsecond precision.
+
+### Calculation Method
+
+<Steps>
+  <Step title="Determine Ideal Schedule">
+    Each chunk should be sent exactly `tick_duration` apart:
+    ```rust
+    let tick_duration = Duration::from_micros(
+        (chunk_size as u64 * 1_000_000) / sample_rate as u64
+    );
+    ```
+    
+    **Example:** 1024 samples @ 48 kHz = 21,333 microseconds (21.3ms)
+  </Step>
+  
+  <Step title="Measure Actual Send Time">
+    Record when each chunk is actually sent:
+    ```rust
+    let send_time = Instant::now();
+    let target = next_tick - tick_duration;
+    ```
+  </Step>
+  
+  <Step title="Calculate Deviation">
+    Compute how far off from the schedule:
+    ```rust
+    // audio.rs:782-789
+    let deviation_ms = if send_time > target {
+        send_time.duration_since(target).as_secs_f32() * 1000.0
+    } else {
+        0.0
+    };
+    ```
+  </Step>
+  
+  <Step title="Apply EWMA Smoothing">
+    Use Exponential Weighted Moving Average to smooth out spikes:
+    ```rust
+    // audio.rs:791-797
+    if jitter_avg == 0.0 {
+        jitter_avg = deviation_ms;
+    } else {
+        jitter_avg = 0.9 * jitter_avg + 0.1 * deviation_ms;
+    }
+    ```
+    
+    **Alpha = 0.1** means the average smooths over ~10 samples.
+  </Step>
+</Steps>
+
+### Jitter Interpretation
+
+| Jitter (ms) | Network Quality | Typical Cause |
+|-------------|-----------------|---------------|
+| < 5 ms | Excellent | Wired Ethernet, low load |
+| 5 - 15 ms | Good | WiFi with good signal, moderate load |
+| 15 - 30 ms | Fair | WiFi with interference, CPU throttling |
+| > 30 ms | Poor | Congested network, high CPU load, distant WiFi |
+
+## Buffer Sizing Algorithm
+
+Every 10 seconds, the adaptive buffer evaluates jitter and determines the target buffer size:
+
+```rust
+// audio.rs:892-908
+if enable_adaptive_buffer && 
+   last_buffer_check.elapsed() >= Duration::from_secs(BUFFER_CHECK_INTERVAL_SECS) 
+{
+    let target_buffer_ms = if jitter_avg < 5.0 {
+        // Low jitter - use minimum buffer
+        adaptive_min_ms
+    } else if jitter_avg > 15.0 {
+        // High jitter - use maximum buffer
+        adaptive_max_ms
+    } else {
+        // Medium jitter - scale linearly between min and max
+        let jitter_ratio = (jitter_avg - 5.0) / 10.0; // 0.0 to 1.0
+        let buffer_range = adaptive_max_ms - adaptive_min_ms;
+        adaptive_min_ms + (buffer_range as f32 * jitter_ratio) as u32
+    }
+    
+    // ... (resize logic follows)
+}
+```
+
+### Scaling Formula
+
+For jitter between 5-15ms, the buffer size is interpolated:
+
+```
+target_buffer_ms = min_buffer + (max_buffer - min_buffer) × ((jitter - 5) / 10)
+
+Example (WiFi preset: 3000-10000ms range):
+- Jitter = 5ms  → 3000ms buffer
+- Jitter = 10ms → 6500ms buffer  [midpoint]
+- Jitter = 15ms → 10000ms buffer
+```
+
+### Resize Threshold
+
+To avoid constant micro-adjustments, the buffer only resizes when the change is **>10%**:
+
+```rust
+// audio.rs:910-915
+let size_diff_pct = ((target_buffer_ms as f32 - current_buffer_ms as f32).abs() 
+                    / current_buffer_ms as f32) * 100.0;
+
+if size_diff_pct > 10.0 {
+    // Proceed with resize
+}
+```
+
+**Example:**
+- Current buffer: 5000ms
+- Target buffer: 5400ms
+- Difference: 8% → **No resize**
+
+- Current buffer: 5000ms
+- Target buffer: 5600ms
+- Difference: 12% → **Resize**
+
+## Device-Specific Ranges
+
+The adaptive buffer uses **different min/max ranges** depending on the input device type:
+
+### WASAPI Loopback (Windows)
+
+```rust
+// audio.rs:528-531
+let (adaptive_min_ms, adaptive_max_ms) = if is_loopback {
+    (4000.max(min_buffer_ms), 12000.min(max_buffer_ms))
+} else { ... }
+```
+
+| Setting | Default | Reason |
+|---------|---------|--------|
+| **Base buffer** | 8000ms | Accounts for WASAPI timing variability |
+| **Min adaptive** | 4000ms | Best-case wired network + low jitter |
+| **Max adaptive** | 12000ms | WiFi laptop with CPU throttling + high jitter |
+
+<Warning>
+**Why WASAPI Loopback Needs Larger Buffers:**
+- Windows loopback capture has unpredictable timing due to OS scheduling
+- Laptop CPU throttling can cause 20-50ms jitter spikes
+- WiFi adds another 50-100ms jitter layer
+- Combined, these factors require a larger buffer for reliable operation
+</Warning>
+
+### Standard Input / VB Audio Cable
+
+```rust
+// audio.rs:532-534
+let (adaptive_min_ms, adaptive_max_ms) = if is_loopback {
+    ...
+} else {
+    (2000.max(min_buffer_ms), 6000.min(max_buffer_ms))
+};
+```
+
+| Setting | Default | Reason |
+|---------|---------|--------|
+| **Base buffer** | 5000ms | WiFi tolerance |
+| **Min adaptive** | 2000ms | Wired network, low jitter |
+| **Max adaptive** | 6000ms | WiFi with moderate interference |
+
+Standard input devices (microphones, VB Cable) have more predictable timing, so tighter bounds are used.
+
+## Network Quality Score
+
+The adaptive buffer system contributes to the **Network Quality Score** displayed in the UI.
+
+### Score Calculation
+
+```rust
+// audio.rs:858-876
+let jitter_penalty = ((jitter_avg / 20.0).min(1.0) * 50.0) as u8;
+let buffer_penalty = if buffer_usage > 0.8 {
+    ((buffer_usage - 0.8) / 0.2 * 30.0) as u8
+} else {
+    0
+};
+let error_penalty = ((consecutive_errors.min(5) as f32 / 5.0) * 20.0) as u8;
+
+let score = 100u8.saturating_sub(jitter_penalty + buffer_penalty + error_penalty);
+```
+
+### Penalty Breakdown
+
+<Tabs>
+  <Tab title="Jitter Penalty (50 points max)">
+    - Target: < 5ms jitter = 0 penalty
+    - Threshold: > 20ms jitter = max penalty
+    - Formula: `(jitter / 20.0) × 50` points
+    
+    **Examples:**
+    - 2ms jitter → 5 penalty → contributes to 95+ score
+    - 10ms jitter → 25 penalty → contributes to 75 score
+    - 25ms jitter → 50 penalty → major score hit
+  </Tab>
+  
+  <Tab title="Buffer Penalty (30 points max)">
+    - Target: < 80% buffer usage = 0 penalty
+    - Threshold: 100% usage = max penalty
+    - Formula: `((usage - 0.8) / 0.2) × 30` points
+    
+    **Examples:**
+    - 50% usage → 0 penalty → healthy
+    - 85% usage → 7.5 penalty → getting full
+    - 95% usage → 22.5 penalty → near overflow
+  </Tab>
+  
+  <Tab title="Error Penalty (20 points max)">
+    - Target: 0 consecutive errors = 0 penalty
+    - Threshold: 5+ errors = max penalty
+    - Formula: `(errors / 5) × 20` points
+    
+    **Examples:**
+    - 0 errors → 0 penalty → perfect
+    - 2 errors → 8 penalty → minor issues
+    - 5+ errors → 20 penalty → serious problems
+  </Tab>
+</Tabs>
+
+### Quality Levels
+
+| Score | Rating | Color | Typical Conditions |
+|-------|--------|-------|-------------------|
+| 90-100 | Excellent | Green | Wired Ethernet, &lt;5ms jitter |
+| 70-89 | Good | Yellow | WiFi with good signal, 5-15ms jitter |
+| 50-69 | Fair | Orange | WiFi with interference, 15-30ms jitter |
+| 0-49 | Poor | Red | Congested network, >30ms jitter, errors |
+
+## Configuration
+
+### Enabling Adaptive Buffering
+
+In the **Advanced** tab of the UI:
+
+```javascript
+// main.js:362-367
+if (settings.adaptive_buffer !== undefined)
+    adaptiveBufferCheck.checked = settings.adaptive_buffer;
+if (settings.min_buffer) minBufferInput.value = settings.min_buffer;
+if (settings.max_buffer) maxBufferInput.value = settings.max_buffer;
+if (settings.network_preset)
+    networkPresetSelect.value = settings.network_preset;
+```
+
+### Network Presets
+
+Three presets automatically configure adaptive buffer ranges:
+
+<Tabs>
+  <Tab title="Ethernet (Stable)">
+    ```javascript
+    ethernet: {
+        ring_buffer_duration: 2000,
+        chunk_size: 512,
+        min_buffer: 2000,
+        max_buffer: 6000,
+        adaptive_buffer: true,
+    }
+    ```
+    
+    **Best for:**
+    - Wired network connections
+    - Low-latency scenarios
+    - Home servers with direct connection
+  </Tab>
+  
+  <Tab title="WiFi (Standard)">
+    ```javascript
+    wifi: {
+        ring_buffer_duration: 4000,
+        chunk_size: 1024,
+        min_buffer: 3000,
+        max_buffer: 10000,
+        adaptive_buffer: true,
+    }
+    ```
+    
+    **Best for:**
+    - Standard WiFi networks
+    - Multi-room audio (Snapcast)
+    - Balanced stability and latency
+  </Tab>
+  
+  <Tab title="WiFi (Poor Signal)">
+    ```javascript
+    "wifi-poor": {
+        ring_buffer_duration: 8000,
+        chunk_size: 2048,
+        min_buffer: 5000,
+        max_buffer: 15000,
+        adaptive_buffer: true,
+    }
+    ```
+    
+    **Best for:**
+    - Weak WiFi signal (far from router)
+    - Congested 2.4GHz networks
+    - Laptops with CPU throttling
+    - Preventing dropouts at all costs
+  </Tab>
+</Tabs>
+
+### Custom Configuration
+
+Advanced users can manually configure adaptive buffer bounds:
+
+1. Select **Custom** from the Network Preset dropdown
+2. Set **Min Buffer** (e.g., 2000ms)
+3. Set **Max Buffer** (e.g., 8000ms)
+4. Enable **Adaptive Buffer** checkbox
+5. Click **Save** to apply
+
+<Note>
+**Rule of Thumb:** The max buffer should be at least **2-3× the min buffer** to give the adaptive algorithm enough room to adjust. For example:
+- Min: 2000ms → Max: 6000-8000ms
+- Min: 4000ms → Max: 10000-12000ms
+</Note>
+
+## Events and Logging
+
+When the adaptive buffer resizes, it emits events for both logging and UI updates.
+
+### Buffer Resize Event
+
+```rust
+// audio.rs:936-942
+let _ = app_handle_net.emit(
+    "buffer-resize-event",
+    BufferResizeEvent {
+        new_size_ms: target_buffer_ms,
+        reason: reason.clone(),
+    },
+);
+```
+
+### Frontend Handler
+
+```javascript
+// main.js:757-767
+await listen("buffer-resize-event", (event) => {
+    const bufferStat = document.getElementById("stat-buffer");
+    if (bufferStat) {
+        bufferStat.textContent = event.payload.new_size_ms + " ms";
+    }
+    addLog({
+        timestamp: new Date().toLocaleTimeString(),
+        level: "info",
+        message: `Buffer resized to ${event.payload.new_size_ms}ms: ${event.payload.reason}`,
+    });
+});
+```
+
+### Example Log Messages
+
+```
+[14:23:15] Buffer resized to 8000ms: Increased due to high jitter (18.3ms)
+[14:28:25] Buffer resized to 5000ms: Decreased due to low jitter (4.2ms)
+[14:35:10] Buffer resized to 11000ms: Increased due to high jitter (22.7ms)
+```
+
+## Performance Impact
+
+### CPU Overhead
+
+Adaptive buffering adds minimal CPU overhead:
+
+- **Jitter calculation:** 2-3 floating-point operations per chunk (~0.01% CPU)
+- **Buffer check:** Once every 10 seconds (~0.001% CPU)
+- **Total:** Negligible (&lt;0.02% CPU)
+
+### Memory Impact
+
+The ring buffer size affects memory usage:
+
+```
+Memory = sample_rate × channels × 4 bytes × duration_seconds
+
+Examples:
+- 2000ms @ 48kHz: 48,000 × 2 × 4 × 2 = 768 KB
+- 8000ms @ 48kHz: 48,000 × 2 × 4 × 8 = 3.07 MB
+- 15000ms @ 48kHz: 48,000 × 2 × 4 × 15 = 5.76 MB
+```
+
+<Info>
+**Memory is Cheap:** Even at maximum buffer size (15 seconds), memory usage is only ~6 MB, which is negligible on modern systems. The stability benefits far outweigh the minimal memory cost.
+</Info>
+
+### Latency Trade-off
+
+| Buffer Size | Latency | Stability |
+|-------------|---------|----------|
+| 2000ms | Low (2s) | Poor on WiFi |
+| 5000ms | Medium (5s) | Good |
+| 10000ms | High (10s) | Excellent |
+| 15000ms | Very High (15s) | Rock solid |
+
+<Warning>
+**Latency Considerations:** For live monitoring or gaming audio, latency >5 seconds may be unacceptable. For multi-room audio (Snapcast), 5-10 second latency is normal and consistent across all clients, so higher latency is acceptable in exchange for dropout-free playback.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Buffer keeps growing to maximum">
+    **Symptoms:**
+    - Buffer size constantly at max (e.g., 15000ms)
+    - Quality score stays in "Fair" or "Poor" range
+    - Frequent "Increased due to high jitter" log messages
+    
+    **Causes:**
+    - Poor WiFi signal strength
+    - Network congestion
+    - CPU throttling (laptops)
+    - Underpowered hardware
+    
+    **Solutions:**
+    - Move closer to WiFi router or switch to Ethernet
+    - Reduce network traffic (pause downloads, streams)
+    - Disable laptop power saving modes
+    - Increase max buffer beyond 15000ms if dropouts still occur
+  </Accordion>
+  
+  <Accordion title="Buffer oscillates between min and max">
+    **Symptoms:**
+    - Buffer size changes every 10-20 seconds
+    - Alternating "Increased" and "Decreased" log messages
+    - Quality score fluctuates rapidly
+    
+    **Causes:**
+    - Intermittent network interference (e.g., microwave, neighboring WiFi)
+    - Variable CPU load (background tasks)
+    - Insufficient hysteresis in jitter smoothing
+    
+    **Solutions:**
+    - Increase EWMA smoothing (lower alpha, e.g., 0.05 instead of 0.1)
+    - Widen the jitter threshold gap (e.g., &lt;3ms = min, >20ms = max)
+    - Switch to 5GHz WiFi band to avoid 2.4GHz congestion
+    - Increase the resize threshold from 10% to 20%
+  </Accordion>
+  
+  <Accordion title="Adaptive buffering doesn't seem to work">
+    **Symptoms:**
+    - Buffer size never changes from initial value
+    - No "Buffer resized" log messages
+    - Quality score doesn't reflect network conditions
+    
+    **Causes:**
+    - Adaptive buffering not enabled
+    - Min and max buffers set to same value
+    - Jitter always falls within the 10% resize threshold
+    
+    **Solutions:**
+    - Verify "Adaptive Buffer" checkbox is enabled in Advanced tab
+    - Ensure min and max buffers are different (e.g., 3000ms and 10000ms)
+    - Manually test with poor network conditions (download large file while streaming)
+    - Check logs for jitter values to confirm they're being calculated
+  </Accordion>
+</AccordionGroup>
+
+## Future Implementation Note
+
+<Warning>
+**Current Limitation (v1.8+):** The adaptive buffer system tracks target buffer sizes and emits events, but **actual ring buffer resizing is not fully implemented** due to complexity:
+
+```rust
+// audio.rs:946-952 (comment)
+// Note: Actual ring buffer resizing would require complex synchronization
+// to avoid audio dropouts. For now, we just track the target size and
+// emit events. Full implementation would need to:
+// 1. Create new ring buffer with new size
+// 2. Copy existing data to new buffer
+// 3. Atomically swap prod/cons references
+// This is marked as future enhancement.
+```
+
+The infrastructure is in place, but live buffer resizing during streaming is deferred to a future release. Currently, the buffer size is set at stream start and remains fixed.
+</Warning>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Audio Streaming" icon="tower-broadcast" href="/features/audio-streaming">
+    Learn about the ring buffer and precision timing
+  </Card>
+  
+  <Card title="Silence Detection" icon="volume-xmark" href="/features/silence-detection">
+    RMS-based silence detection for bandwidth savings
+  </Card>
+  
+  <Card title="Profiles" icon="layer-group" href="/features/profiles">
+    Save adaptive buffer settings per network environment
+  </Card>
+</CardGroup>

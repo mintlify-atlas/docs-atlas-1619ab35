@@ -1,0 +1,609 @@
+---
+title: 'Configuration Profiles'
+description: 'Manage multiple streaming configurations for different scenarios with quick profile switching and persistent storage'
+---
+
+## Overview
+
+TCP Streamer's profile system allows you to save and switch between multiple complete configurations. Each profile stores all settings, including device selection, network parameters, buffer sizes, and advanced options. This enables you to quickly adapt to different streaming scenarios without reconfiguring settings manually.
+
+<Info>
+**Storage Backend:** Profiles are persisted using the **Tauri Plugin Store** (v2), which stores settings in a binary file (`store.bin`) in the application's data directory. Settings are automatically saved and synchronized across app sessions.
+</Info>
+
+## Profile Structure
+
+Each profile contains a complete snapshot of all configurable settings:
+
+### Stored Settings
+
+```javascript
+// main.js:393-413
+const settings = {
+    device: deviceSelect.value,
+    ip: ipInput.value,
+    port: parseInt(portInput.value),
+    sample_rate: parseInt(sampleRateSelect.value),
+    buffer_size: parseInt(bufferSizeSelect.value),
+    ring_buffer_duration: parseInt(ringBufferDurationSelect.value),
+    auto_stream: autostreamCheck.checked,
+    auto_reconnect: autoReconnectCheck.checked,
+    high_priority: priorityCheck.checked,
+    dscp_strategy: dscpSelect.value,
+    chunk_size: parseInt(chunkSizeSelect.value),
+    adaptive_buffer: adaptiveBufferCheck.checked,
+    min_buffer: parseInt(minBufferInput.value),
+    max_buffer: parseInt(maxBufferInput.value),
+    network_preset: networkPresetSelect.value,
+};
+```
+
+### Profile Data Model
+
+```javascript
+// Tauri Store structure
+{
+    "profiles": {
+        "Default": { /* settings object */ },
+        "Home-Snapcast": { /* settings object */ },
+        "Studio-Monitor": { /* settings object */ },
+        "Testing": { /* settings object */ }
+    },
+    "current_profile": "Home-Snapcast",
+    "device": "CABLE Output (VB-Audio Virtual Cable)",
+    "loopback_mode": false
+}
+```
+
+<Note>
+The `device` and `loopback_mode` settings are stored both **globally** (for convenience) and **per-profile** (for scenario-specific configurations).
+</Note>
+
+## Managing Profiles
+
+### Default Profile
+
+Every installation starts with a **Default** profile that cannot be deleted:
+
+```javascript
+// main.js:439-449
+async function loadProfiles() {
+    const profiles = await store.get("profiles");
+    if (!profiles || Object.keys(profiles).length === 0) {
+        // Initialize default profile
+        await store.set("profiles", { Default: {} });
+        await store.set("current_profile", "Default");
+        await store.save();
+    }
+    await renderProfileList();
+}
+```
+
+The Default profile serves as a fallback and cannot be removed to prevent the profile list from becoming empty.
+
+### Creating a New Profile
+
+<Steps>
+  <Step title="Click New Profile Button">
+    In the **Connection** tab, click the **➕ New** button next to the profile dropdown.
+  </Step>
+  
+  <Step title="Enter Profile Name">
+    Type a unique name for your profile (e.g., "Office-WiFi", "Home-Ethernet", "Snapcast-Bedroom").
+  </Step>
+  
+  <Step title="Confirm Creation">
+    Click the **✓ Create** button. The new profile is created by **copying the current profile's settings**.
+    
+    ```javascript
+    // main.js:468-487
+    async function createNewProfile(name) {
+        if (!name) return;
+        const profiles = (await store.get("profiles")) || {};
+        if (profiles[name]) {
+            alert("Profile already exists!");
+            return;
+        }
+        
+        // Copy current settings
+        const currentProfile = profileSelect.value;
+        profiles[name] = profiles[currentProfile] || {};
+        
+        await store.set("profiles", profiles);
+        await store.set("current_profile", name);
+        await store.save();
+        
+        await renderProfileList();
+        profileSelect.value = name;
+        showNotification(`Profile '${name}' created successfully`, "success");
+    }
+    ```
+  </Step>
+  
+  <Step title="Customize Settings">
+    Modify settings as needed for this scenario. Changes are saved automatically when you adjust any setting.
+  </Step>
+</Steps>
+
+### Switching Profiles
+
+<Steps>
+  <Step title="Select from Dropdown">
+    Click the profile dropdown menu in the **Connection** tab.
+  </Step>
+  
+  <Step title="Choose Profile">
+    Select the desired profile from the list.
+  </Step>
+  
+  <Step title="Settings Load Automatically">
+    All settings are immediately restored from the selected profile:
+    
+    ```javascript
+    // main.js:834-839
+    if (profileSelect) {
+        profileSelect.addEventListener("change", async (e) => {
+            await store.set("current_profile", e.target.value);
+            await store.save();
+            await loadSettings();
+        });
+    }
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+**Active Stream Warning:** If you switch profiles while streaming is active, the stream will **not** automatically restart with the new settings. You must manually stop and restart the stream to apply the new profile configuration.
+</Warning>
+
+### Saving Changes to Profile
+
+Settings are saved automatically whenever you modify any input field:
+
+```javascript
+// main.js:776-791 - Auto-save listeners
+if (deviceSelect) deviceSelect.addEventListener("change", saveSettings);
+if (ipInput) ipInput.addEventListener("change", saveSettings);
+if (portInput) portInput.addEventListener("change", saveSettings);
+if (sampleRateSelect) sampleRateSelect.addEventListener("change", saveSettings);
+if (bufferSizeSelect) bufferSizeSelect.addEventListener("change", saveSettings);
+if (ringBufferDurationSelect) ringBufferDurationSelect.addEventListener("change", saveSettings);
+if (autostreamCheck) autostreamCheck.addEventListener("change", saveSettings);
+if (autoReconnectCheck) autoReconnectCheck.addEventListener("change", saveSettings);
+if (priorityCheck) priorityCheck.addEventListener("change", saveSettings);
+if (dscpSelect) dscpSelect.addEventListener("change", saveSettings);
+if (chunkSizeSelect) chunkSizeSelect.addEventListener("change", saveSettings);
+```
+
+You can also manually click **💾 Save** to force an immediate save operation:
+
+```javascript
+// main.js:842
+if (btnSaveProfile) btnSaveProfile.addEventListener("click", saveSettings);
+```
+
+Both trigger the same `saveSettings()` function, which updates the current profile in the store.
+
+### Deleting a Profile
+
+<Steps>
+  <Step title="Select Profile to Delete">
+    Choose the profile you want to remove from the dropdown.
+  </Step>
+  
+  <Step title="Click Delete Button">
+    Click the **🗑️ Delete** button.
+  </Step>
+  
+  <Step title="Confirm Deletion">
+    The profile is removed from the store, and you're automatically switched to the Default profile:
+    
+    ```javascript
+    // main.js:490-522
+    async function deleteProfile() {
+        const current = profileSelect.value;
+        if (!current) {
+            alert("Please select a profile first");
+            return;
+        }
+        
+        if (current === "Default") {
+            alert("Cannot delete Default profile");
+            return;
+        }
+        
+        const profiles = await store.get("profiles");
+        delete profiles[current];
+        
+        await store.set("profiles", profiles);
+        await store.set("current_profile", "Default");
+        await store.save();
+        
+        await renderProfileList();
+        await loadSettings(); // Reload settings for Default
+        showNotification(`Profile '${current}' deleted successfully`, "success");
+    }
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+**Cannot Delete Default:** The Default profile is protected and cannot be removed. Attempting to delete it will display an error message.
+</Warning>
+
+## Use Cases
+
+### Example Profile Configurations
+
+<Tabs>
+  <Tab title="Home-Snapcast">
+    **Scenario:** Streaming to a Snapcast server on home WiFi for multi-room audio.
+    
+    **Settings:**
+    ```yaml
+    device: "CABLE Output (VB-Audio Virtual Cable)"
+    ip: "192.168.1.100"
+    port: 4953
+    sample_rate: 48000
+    buffer_size: 1024
+    ring_buffer_duration: 4000
+    auto_stream: true
+    auto_reconnect: true
+    high_priority: false
+    dscp_strategy: "voip"
+    chunk_size: 1024
+    adaptive_buffer: true
+    min_buffer: 3000
+    max_buffer: 10000
+    network_preset: "wifi"
+    ```
+    
+    **Why This Works:**
+    - WiFi preset provides 3-10s adaptive buffer range
+    - VoIP DSCP tagging for QoS priority
+    - Auto-reconnect ensures resilience to brief network hiccups
+    - 48kHz sample rate for high-fidelity music
+  </Tab>
+  
+  <Tab title="Studio-Monitor">
+    **Scenario:** Low-latency monitoring over wired Ethernet to a remote studio monitor.
+    
+    **Settings:**
+    ```yaml
+    device: "Microphone (USB Audio)"
+    ip: "10.0.0.50"
+    port: 8000
+    sample_rate: 44100
+    buffer_size: 512
+    ring_buffer_duration: 2000
+    auto_stream: false
+    auto_reconnect: true
+    high_priority: true
+    dscp_strategy: "lowdelay"
+    chunk_size: 512
+    adaptive_buffer: true
+    min_buffer: 2000
+    max_buffer: 6000
+    network_preset: "ethernet"
+    ```
+    
+    **Why This Works:**
+    - Ethernet preset minimizes latency (2-6s range)
+    - Small buffer size (512) reduces capture latency
+    - High-priority thread for consistent timing
+    - Manual stream start (auto_stream: false) for control
+  </Tab>
+  
+  <Tab title="Testing-Localhost">
+    **Scenario:** Local testing with netcat or custom TCP server for development.
+    
+    **Settings:**
+    ```yaml
+    device: "[Loopback] Speakers (Realtek)"
+    ip: "127.0.0.1"
+    port: 9999
+    sample_rate: 48000
+    buffer_size: 1024
+    ring_buffer_duration: 8000
+    auto_stream: false
+    auto_reconnect: false
+    high_priority: false
+    dscp_strategy: "besteffort"
+    chunk_size: 2048
+    adaptive_buffer: false
+    min_buffer: 8000
+    max_buffer: 8000
+    network_preset: "custom"
+    ```
+    
+    **Why This Works:**
+    - Localhost eliminates network jitter
+    - WASAPI loopback captures system audio
+    - Large fixed buffer (8s) for stability during debugging
+    - Auto-reconnect disabled to catch connection errors
+  </Tab>
+  
+  <Tab title="Office-Remote">
+    **Scenario:** Streaming to a remote office over VPN/Internet with variable network quality.
+    
+    **Settings:**
+    ```yaml
+    device: "CABLE Output (VB-Audio Virtual Cable)"
+    ip: "vpn-server.company.com"
+    port: 4953
+    sample_rate: 44100
+    buffer_size: 2048
+    ring_buffer_duration: 8000
+    auto_stream: true
+    auto_reconnect: true
+    high_priority: false
+    dscp_strategy: "throughput"
+    chunk_size: 2048
+    adaptive_buffer: true
+    min_buffer: 5000
+    max_buffer: 15000
+    network_preset: "wifi-poor"
+    ```
+    
+    **Why This Works:**
+    - WiFi-poor preset provides 5-15s adaptive buffer range
+    - Large chunk size (2048) reduces packet overhead
+    - Throughput DSCP for bulk data over WAN
+    - Auto-stream + auto-reconnect for "set and forget" operation
+  </Tab>
+</Tabs>
+
+## Profile Workflows
+
+### Scenario-Based Workflow
+
+<Steps>
+  <Step title="Identify Your Scenarios">
+    List the different environments or use cases where you stream audio:
+    - Home WiFi multi-room
+    - Office wired network
+    - Laptop on WiFi (portable)
+    - Testing/development setup
+  </Step>
+  
+  <Step title="Create Profile for Each Scenario">
+    For each scenario, create a dedicated profile with appropriate settings.
+  </Step>
+  
+  <Step title="Test Each Profile">
+    Start streaming with each profile and verify stability:
+    - Monitor quality score (should stay >70)
+    - Watch for "Buffer resized" log messages
+    - Check for audio dropouts
+  </Step>
+  
+  <Step title="Tune Settings">
+    Adjust buffer sizes, chunk sizes, and network presets based on real-world performance.
+  </Step>
+  
+  <Step title="Switch as Needed">
+    When you change locations or scenarios, simply select the appropriate profile from the dropdown.
+  </Step>
+</Steps>
+
+### Quick Switching Example
+
+**Morning:** At home on WiFi
+- Select **"Home-Snapcast"** profile
+- Click **Start Streaming**
+- Quality score: 85-95 (Good-Excellent)
+
+**Afternoon:** Move to office with Ethernet
+- Stop stream
+- Select **"Office-Ethernet"** profile
+- Click **Start Streaming**
+- Quality score: 95-100 (Excellent)
+
+**Evening:** Back home, but router is congested
+- Stop stream
+- Select **"Home-Snapcast-Poor"** profile (custom variant with higher buffers)
+- Click **Start Streaming**
+- Quality score: 70-80 (Good, no dropouts)
+
+## Persistence and Reliability
+
+### Automatic Saving
+
+All profile changes are immediately persisted to disk:
+
+```javascript
+// main.js:425-426
+await store.save();
+console.log(`💾 Settings saved to profile '${currentProfile}'`);
+```
+
+The Tauri Store plugin ensures atomic writes, so settings are never corrupted even if the app crashes.
+
+### Storage Location
+
+| Platform | Store File Path |
+|----------|----------------|
+| **Windows** | `C:\Users\<User>\AppData\Roaming\com.tcp-streamer.app\store.bin` |
+| **macOS** | `~/Library/Application Support/com.tcp-streamer.app/store.bin` |
+| **Linux** | `~/.local/share/com.tcp-streamer.app/store.bin` |
+
+<Note>
+The store file is a binary format managed by the Tauri plugin. It's **not human-readable**, but it's portable across systems. You can back up this file to preserve your profiles.
+</Note>
+
+### Backup and Restore
+
+**To Backup Profiles:**
+1. Locate the `store.bin` file (see paths above)
+2. Copy it to a safe location (e.g., Dropbox, USB drive)
+3. Optionally rename with timestamp: `store.bin.backup-2024-03-04`
+
+**To Restore Profiles:**
+1. Close TCP Streamer
+2. Replace `store.bin` with your backup file
+3. Restart TCP Streamer
+4. Verify profiles loaded correctly in dropdown
+
+<Warning>
+**Restoring will overwrite:** If you restore a backup, any profiles created since that backup will be lost. Consider exporting individual profile settings manually if you need selective restore.
+</Warning>
+
+## Advanced: Manual Profile Export/Import
+
+While TCP Streamer doesn't provide a built-in export/import UI, you can manually extract profile settings:
+
+### Exporting Profile Settings (Manual)
+
+1. Open Developer Tools in the app (if enabled in development mode)
+2. Run in console:
+   ```javascript
+   const store = await Store.load("store.bin");
+   const profiles = await store.get("profiles");
+   console.log(JSON.stringify(profiles["Home-Snapcast"], null, 2));
+   ```
+3. Copy the JSON output and save to a text file
+
+### Importing Profile Settings (Manual)
+
+1. Open Developer Tools
+2. Run in console:
+   ```javascript
+   const store = await Store.load("store.bin");
+   const profiles = await store.get("profiles");
+   profiles["Imported-Profile"] = {
+       // Paste JSON here
+   };
+   await store.set("profiles", profiles);
+   await store.save();
+   ```
+3. Reload the app to see the new profile
+
+<Note>
+This workflow is intended for advanced users and developers. A future release may add a built-in export/import UI feature.
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Profile not saving changes">
+    **Symptoms:**
+    - Change settings, but they revert after app restart
+    - Console shows errors like "Failed to save settings"
+    
+    **Causes:**
+    - Store file permissions issue
+    - Disk full
+    - Antivirus blocking file writes
+    
+    **Solutions:**
+    - Check file permissions on the store.bin directory
+    - Verify sufficient disk space
+    - Add TCP Streamer to antivirus whitelist
+    - Try running app as administrator (Windows) to test if it's a permission issue
+  </Accordion>
+  
+  <Accordion title="Profile dropdown is empty">
+    **Symptoms:**
+    - No profiles appear in dropdown
+    - UI shows "No profiles found"
+    
+    **Causes:**
+    - Corrupted store file
+    - First-time initialization failed
+    
+    **Solutions:**
+    - Delete the store.bin file and restart the app (creates fresh Default profile)
+    - Check browser console for JavaScript errors
+    - Verify Tauri Store plugin is loaded correctly
+  </Accordion>
+  
+  <Accordion title="Cannot switch to specific profile">
+    **Symptoms:**
+    - Selecting profile from dropdown has no effect
+    - Settings don't change
+    
+    **Causes:**
+    - Profile data is corrupted or incomplete
+    - JavaScript event listener not attached
+    
+    **Solutions:**
+    - Delete the problematic profile and recreate it
+    - Check browser console for errors during profile switch
+    - Verify profile exists in store: `store.get("profiles").then(console.log)`
+  </Accordion>
+  
+  <Accordion title="Profiles lost after update">
+    **Symptoms:**
+    - After updating TCP Streamer, all profiles are gone
+    - Only Default profile remains
+    
+    **Causes:**
+    - Update changed store file location
+    - Store file was not migrated
+    
+    **Solutions:**
+    - Check old store location (if app ID changed)
+    - Restore from backup if available
+    - Manually recreate profiles (use backup text notes if you documented settings)
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Descriptive Names" icon="tag">
+    Use clear, descriptive profile names that indicate the scenario:
+    - ✅ "Home-WiFi-Snapcast"
+    - ✅ "Office-Ethernet-Monitor"
+    - ❌ "Profile1"
+    - ❌ "Test"
+  </Card>
+  
+  <Card title="Document Settings" icon="note-sticky">
+    Keep a separate text file documenting your profile configurations, especially if they're finely tuned. This serves as a backup if profiles are lost.
+  </Card>
+  
+  <Card title="Test Before Relying" icon="flask">
+    After creating a new profile, thoroughly test it under real conditions before depending on it for critical use.
+  </Card>
+  
+  <Card title="Regular Backups" icon="floppy-disk">
+    Periodically back up your store.bin file, especially after creating or modifying important profiles.
+  </Card>
+</CardGroup>
+
+## Future Enhancements
+
+<CardGroup cols={2}>
+  <Card title="Export/Import UI" icon="file-export">
+    Built-in export/import feature for sharing profiles or backing up to JSON files.
+  </Card>
+  
+  <Card title="Profile Templates" icon="layer-group">
+    Pre-configured templates for common scenarios (Snapcast, live monitoring, remote streaming, etc.).
+  </Card>
+  
+  <Card title="Cloud Sync" icon="cloud">
+    Optional cloud synchronization of profiles across multiple devices.
+  </Card>
+  
+  <Card title="Profile Hotkeys" icon="keyboard">
+    Keyboard shortcuts to quickly switch between frequently-used profiles.
+  </Card>
+</CardGroup>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Audio Streaming" icon="tower-broadcast" href="/features/audio-streaming">
+    Understand the settings you're configuring in profiles
+  </Card>
+  
+  <Card title="Adaptive Buffering" icon="chart-line" href="/features/adaptive-buffering">
+    Learn about the buffer settings saved in each profile
+  </Card>
+  
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get started with your first profile configuration
+  </Card>
+</CardGroup>

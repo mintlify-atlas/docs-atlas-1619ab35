@@ -1,0 +1,562 @@
+---
+title: Advanced Settings
+description: Configure adaptive buffer sizing, performance optimization, and detailed logging
+---
+
+## Overview
+
+Advanced settings provide fine-grained control over TCP Streamer's internal behavior. These settings are designed for power users, challenging network conditions, and performance optimization.
+
+## Adaptive Buffer
+
+Automatically adjusts ring buffer size based on real-time network jitter measurements.
+
+<ParamField path="enable_adaptive_buffer" type="boolean" default="false">
+  Enable dynamic buffer sizing based on network conditions
+</ParamField>
+
+### How It Works
+
+The adaptive buffer system continuously monitors network jitter and resizes the ring buffer to prevent dropouts:
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Jitter    │────▶│  Adaptive    │────▶│   Ring      │
+│  Monitor    │     │  Controller  │     │   Buffer    │
+│  (EWMA)     │     │              │     │  (Resize)   │
+└─────────────┘     └──────────────┘     └─────────────┘
+
+Check interval: Every 10 seconds
+Resize threshold: >10% difference
+```
+
+### Configuration
+
+<ParamField path="min_buffer_ms" type="integer" default="2000">
+  Minimum ring buffer size in milliseconds (floor)
+</ParamField>
+
+<ParamField path="max_buffer_ms" type="integer" default="10000">
+  Maximum ring buffer size in milliseconds (ceiling)
+</ParamField>
+
+### Network-Aware Ranges
+
+TCP Streamer automatically adjusts adaptive ranges based on device type:
+
+#### WASAPI Loopback (Windows)
+
+```json
+{
+  "device_type": "loopback",
+  "default_min": 4000,
+  "default_max": 12000,
+  "initial_buffer": 8000
+}
+```
+
+**Rationale**: WASAPI loopback has higher timing variability due to:
+- WiFi jitter (50-100ms)
+- Laptop CPU throttling (20-50ms)
+- WASAPI timing unpredictability
+- Multiple audio subsystem layers
+
+#### Standard Input / Virtual Cable
+
+```json
+{
+  "device_type": "standard",
+  "default_min": 2000,
+  "default_max": 6000,
+  "initial_buffer": 5000
+}
+```
+
+**Rationale**: Direct input devices have more predictable timing:
+- Direct audio capture path
+- Lower CPU overhead
+- More aggressive buffer management
+
+### Sizing Algorithm
+
+Buffer size is determined by measured jitter:
+
+```rust
+if jitter < 5.0ms {
+    target = min_buffer_ms  // Low jitter: minimum buffer
+} else if jitter > 15.0ms {
+    target = max_buffer_ms  // High jitter: maximum buffer
+} else {
+    // Linear interpolation between min and max
+    ratio = (jitter - 5.0) / 10.0  // 0.0 to 1.0
+    target = min_buffer_ms + (max_buffer_ms - min_buffer_ms) × ratio
+}
+```
+
+### Resize Conditions
+
+Buffer only resizes when:
+
+1. **Time interval**: At least 10 seconds since last check
+2. **Significant difference**: >10% change from current size
+3. **Stable jitter**: EWMA-smoothed value (not instant spike)
+
+### Example Scenarios
+
+#### Ethernet Connection (Stable)
+
+```
+Time: 0s   Jitter: 2.0ms  Buffer: 2000ms (min)
+Time: 10s  Jitter: 2.5ms  Buffer: 2000ms (no change)
+Time: 20s  Jitter: 1.8ms  Buffer: 2000ms (no change)
+```
+
+#### WiFi Connection (Variable)
+
+```
+Time: 0s   Jitter: 8.0ms   Buffer: 4000ms (initial)
+Time: 10s  Jitter: 12.0ms  Buffer: 5800ms (increased)
+Time: 20s  Jitter: 16.0ms  Buffer: 8200ms (increased)
+Time: 30s  Jitter: 9.0ms   Buffer: 6000ms (decreased)
+```
+
+#### Poor Connection (Unstable)
+
+```
+Time: 0s   Jitter: 18.0ms  Buffer: 8000ms (initial)
+Time: 10s  Jitter: 22.0ms  Buffer: 15000ms (max)
+Time: 20s  Jitter: 20.0ms  Buffer: 15000ms (at max)
+Time: 30s  Jitter: 14.0ms  Buffer: 10800ms (decreased)
+```
+
+<Info>
+Adaptive buffer emits a log event and UI notification each time it resizes, showing the reason (jitter value) and new size.
+</Info>
+
+### Trade-offs
+
+**Advantages**:
+- Automatically responds to network conditions
+- Minimizes latency during stable periods
+- Prevents dropouts during jitter spikes
+- Ideal for variable networks (WiFi, cellular)
+
+**Disadvantages**:
+- Adds 10s monitoring overhead
+- Latency varies over time
+- Not suitable for fixed-latency requirements
+- Can cause brief audio gap during resize (future versions will fix)
+
+<Warning>
+Current implementation (v1.8.1) does not actually reallocate the ring buffer due to synchronization complexity. It tracks target size and emits events, but full dynamic reallocation is a future enhancement.
+</Warning>
+
+## Network Presets (Advanced)
+
+Network presets (see [Network Settings](/configuration/network-settings)) automatically configure adaptive buffer ranges:
+
+| Preset | Min Buffer | Max Buffer | Adaptive |
+|--------|------------|------------|----------|
+| **Ethernet** | 2000ms | 6000ms | Enabled |
+| **WiFi** | 3000ms | 10000ms | Enabled |
+| **WiFi (Poor)** | 5000ms | 15000ms | Enabled |
+
+### Custom Configuration
+
+You can manually override preset values:
+
+```json
+{
+  "network_preset": "custom",
+  "enable_adaptive_buffer": true,
+  "min_buffer_ms": 3000,
+  "max_buffer_ms": 12000,
+  "ring_buffer_duration": 6000
+}
+```
+
+## Spin Strategy
+
+Hybrid spin-loop wait strategy for sub-millisecond timing precision.
+
+<ParamField path="spin_strategy" type="boolean" default="true" readonly>
+  Use spin-loop for precise timing (always enabled in v1.7.0+)
+</ParamField>
+
+### How It Works
+
+Introduced in v1.7.0, the spin strategy uses a two-phase wait:
+
+```rust
+// Phase 1: Sleep for most of the duration
+if remaining_time > 1ms {
+    thread::sleep(remaining_time - 1ms);
+}
+
+// Phase 2: Spin-loop for final microseconds
+while Instant::now() < next_tick {
+    std::hint::spin_loop();  // CPU tight loop
+}
+```
+
+### Benefits
+
+- **Sub-millisecond precision**: Accurate to ~10-100 microseconds
+- **Consistent timing**: Reduces jitter by 50-80%
+- **Predictable scheduling**: Not subject to OS scheduler quantum
+
+### Trade-offs
+
+- **CPU usage**: ~1-2% higher during streaming (minimal impact)
+- **Power consumption**: Slightly higher on battery devices
+- **Heat generation**: Negligible on modern CPUs
+
+<Info>
+Spin strategy is always enabled as of v1.7.0 and cannot be disabled. The precision benefits far outweigh the minimal CPU cost.
+</Info>
+
+## Prefill Gate
+
+Buffering mechanism that eliminates startup stutter.
+
+<ParamField path="prefill_samples" type="integer" default="sample_rate × 1" readonly>
+  Number of samples to buffer before transmission (always 1000ms)
+</ParamField>
+
+### How It Works
+
+Introduced in v1.8.1, the prefill gate prevents "cold start" stuttering:
+
+```rust
+// Calculate prefill requirement
+prefill_samples = sample_rate × 1.0  // 1 second = 1000ms
+
+// Wait for buffer to fill
+while ring_buffer.len() < prefill_samples {
+    thread::sleep(10ms);
+}
+
+log("Buffer prefilled! Starting transmission.");
+start_network_transmission();
+```
+
+### Why It's Needed
+
+Without prefill:
+1. Audio capture starts
+2. Network thread immediately starts sending
+3. Buffer is nearly empty
+4. First packets are delayed/dropped
+5. Receiver hears stuttering
+
+With prefill:
+1. Audio capture starts
+2. Buffer fills to 1000ms
+3. Network thread starts with cushion
+4. Smooth, immediate playback
+
+### Configuration
+
+Prefill is always **1000ms** (1 second) and cannot be changed:
+
+- **Too short (< 500ms)**: Doesn't eliminate stutter
+- **Too long (> 2000ms)**: Adds unnecessary startup delay
+- **1000ms**: Perfect balance
+
+<Tip>
+You'll see "Buffering... waiting for X samples (1000ms)" in logs during startup. This is normal and expected.
+</Tip>
+
+## Buffer Health Monitoring
+
+Real-time tracking of ring buffer usage.
+
+### Metrics
+
+**Buffer Health** (0.0 to 1.0):
+
+```rust
+occupied = ring_buffer.len()
+capacity = ring_buffer.capacity()
+buffer_health = 1.0 - (occupied / capacity)
+```
+
+- **1.0**: Buffer empty (maximum health)
+- **0.8**: Buffer 20% full (good)
+- **0.5**: Buffer 50% full (fair)
+- **0.2**: Buffer 80% full (critical)
+- **0.0**: Buffer completely full (overflow imminent)
+
+### Monitoring
+
+Buffer health is emitted every 30 seconds via heartbeat:
+
+```
+[14:32:00] DEBUG: Network thread heartbeat: ✓ Active | Buffer: 35.2% | Connection: Connected
+```
+
+### Critical Levels
+
+| Usage | Status | Action |
+|-------|--------|--------|
+| **< 50%** | Healthy | No action needed |
+| **50-80%** | Warning | Monitor for increase |
+| **> 80%** | Critical | Increase buffer size or chunk size |
+| **100%** | Overflow | Audio is being dropped |
+
+<Warning>
+If buffer usage consistently exceeds 80%, you need to either increase ring buffer duration or increase chunk size to drain faster.
+</Warning>
+
+## Logging System
+
+Multi-level logging with rate limiting.
+
+### Log Levels
+
+<ParamField path="log_level" type="enum" default="info">
+  Logging verbosity level
+  
+  <Expandable title="Available Levels">
+    - `error`: Only critical errors
+    - `warning`: Errors and warnings
+    - `info`: Normal operation (default)
+    - `debug`: Detailed diagnostics
+    - `trace`: Maximum verbosity
+    - `success`: Positive confirmations
+  </Expandable>
+</ParamField>
+
+### Log Output
+
+**Frontend (UI)**:
+- Rate limited to 5 logs per second
+- Prevents UI flooding during errors
+- Circular buffer (max 100 entries)
+- Color-coded by level
+
+**Backend (Terminal)**:
+- Unlimited rate (all logs written)
+- Rust `log` crate integration
+- Timestamp with millisecond precision
+- Useful for debugging and monitoring
+
+### Filtering
+
+UI includes log filter dropdown:
+
+```javascript
+filterLogs(level: "all" | "error" | "warning" | "info" | "debug" | "trace" | "success")
+```
+
+### Common Log Messages
+
+#### Startup
+
+```
+[14:32:00] INFO: Starting stream to 192.168.1.100:4953
+[14:32:00] DEBUG: Init stream: Device='Microphone', Rate=48000, Buf=1024...
+[14:32:00] INFO: Ring buffer: 4000ms (1.15MB) - Device type: Standard Input
+[14:32:00] INFO: Detected Input Format: F32
+[14:32:01] SUCCESS: Stream started successfully
+```
+
+#### Connection
+
+```
+[14:32:01] INFO: Network thread started
+[14:32:01] INFO: Buffering... waiting for 48000 samples (1000ms)
+[14:32:02] SUCCESS: Buffer prefilled! Starting transmission.
+[14:32:02] SUCCESS: Connected successfully!
+```
+
+#### Errors
+
+```
+[14:35:12] ERROR: Write error: Connection reset by peer
+[14:35:12] DEBUG: TCP connection closed gracefully (write error)
+[14:35:14] WARNING: Reconnecting to 192.168.1.100:4953 (retry in 2s)...
+[14:35:16] SUCCESS: Reconnected successfully
+```
+
+#### Adaptive Buffer
+
+```
+[14:40:00] INFO: Adaptive buffer: 4000ms → 6000ms (jitter: 12.3ms, range: 3000-10000ms). Increased due to high jitter (12.3ms)
+```
+
+<Tip>
+Enable **Debug** level logging when troubleshooting connection issues or performance problems.
+</Tip>
+
+## Performance Monitoring
+
+Real-time statistics and quality metrics.
+
+### Statistics (Every 2 seconds)
+
+```javascript
+{
+  uptime_seconds: 3661,        // 1 hour, 1 minute, 1 second
+  bytes_sent: 268435456,       // 256 MB
+  bitrate_kbps: 1536.0         // 48kHz stereo PCM
+}
+```
+
+### Quality Metrics (Every 4 seconds)
+
+```javascript
+{
+  score: 92,                   // 0-100 quality rating
+  jitter: 3.2,                 // milliseconds
+  avg_latency: 1.8,            // milliseconds (write time)
+  buffer_health: 0.85,         // 0.0-1.0 (85% healthy)
+  error_count: 0               // consecutive errors
+}
+```
+
+### Heartbeat (Every 30 seconds)
+
+```
+[14:32:30] DEBUG: Network thread heartbeat: ✓ Active | Buffer: 35.2% | Connection: Connected
+```
+
+<Info>
+All metrics are emitted via Tauri event system and displayed in real-time in the UI statistics bar.
+</Info>
+
+## TCP Socket Configuration
+
+Advanced socket options for network optimization.
+
+### Send Buffer Size
+
+```rust
+socket.set_send_buffer_size(1024 * 1024)?;  // 1 MB
+```
+
+Allows kernel to buffer up to 1MB of data before blocking write calls.
+
+### TCP Keepalive
+
+```rust
+TcpKeepalive::new()
+    .with_time(Duration::from_secs(5))      // Start after 5s idle
+    .with_interval(Duration::from_secs(2))  // Probe every 2s
+```
+
+Detects broken connections even when no data is being sent.
+
+### TCP Nodelay (Nagle's Algorithm)
+
+```rust
+stream.set_nodelay(true)?;  // Disable Nagle
+```
+
+Sends packets immediately without waiting for coalescing (critical for low-latency audio).
+
+### Write Timeout
+
+```rust
+stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+```
+
+Prevents hung connections by timing out write operations after 5 seconds.
+
+<Warning>
+These socket options are automatically configured and cannot be changed via UI. They represent best practices for real-time audio streaming.
+</Warning>
+
+## Audio Format Detection
+
+Dynamic format negotiation with fallback.
+
+### Format Priority
+
+1. **F32** (32-bit float) - Preferred for quality, native on PipeWire/Linux
+2. **I16** (16-bit signed integer) - Standard PCM format
+3. **U16** (16-bit unsigned integer) - Fallback format
+
+### Internal Pipeline
+
+All audio is processed as **F32** internally:
+
+```rust
+I16 Input → F32 (normalize) → Ring Buffer → F32 → I16 (convert) → Network
+U16 Input → F32 (normalize) → Ring Buffer → F32 → I16 (convert) → Network
+F32 Input → F32 (passthrough) → Ring Buffer → F32 → I16 (convert) → Network
+```
+
+**Benefits**:
+- No clipping during processing
+- Consistent internal representation
+- High-quality conversion
+- Future-proof for DSP features
+
+### Conversion Functions
+
+```rust
+// I16 → F32
+f32_sample = i16_sample as f32 / 32768.0
+
+// U16 → F32
+f32_sample = (u16_sample as f32 - 32768.0) / 32768.0
+
+// F32 → I16 (network edge)
+i16_sample = (f32_sample.clamp(-1.0, 1.0) × 32767.0) as i16
+```
+
+<Info>
+Introduced in v1.8.0, the F32 internal pipeline eliminates clipping and Linux noise issues present in earlier versions.
+</Info>
+
+## Troubleshooting
+
+### Adaptive Buffer Not Resizing
+
+**Symptoms**: Buffer size never changes despite jitter
+
+**Solutions**:
+- Verify adaptive buffer is enabled
+- Check jitter values in quality metrics
+- Ensure >10% difference threshold is met
+- Wait at least 10 seconds between checks
+- Review logs for "Adaptive buffer" messages
+
+### High CPU Usage with Spin Strategy
+
+**Symptoms**: >5% CPU usage during streaming
+
+**Solutions**:
+- Verify you're running v1.7.0+ (older versions may have issues)
+- Check for other system load (spin strategy adds ~1-2%)
+- Increase chunk size to reduce packet frequency
+- Consider hardware limitations (very old CPUs may struggle)
+
+### Buffer Overflow Warnings
+
+**Symptoms**: "Buffer overflow: Dropped X samples" in logs
+
+**Solutions**:
+- Increase ring buffer duration
+- Increase chunk size (drains buffer faster)
+- Check network latency (slow drain)
+- Verify high-priority threading is enabled
+- Enable adaptive buffer to dynamically adjust
+
+### Prefill Never Completes
+
+**Symptoms**: "Buffering..." message persists indefinitely
+
+**Solutions**:
+- Check audio device is functioning
+- Verify device is not muted
+- Try different input device
+- Check device permissions (macOS/Linux)
+- Look for audio capture errors in logs
+
+## Related Settings
+
+- [Audio Settings](/configuration/audio-settings) - Configure ring buffer duration
+- [Network Settings](/configuration/network-settings) - Network presets configure adaptive ranges
+- [Automation](/configuration/automation) - Auto-reconnect works with adaptive buffer

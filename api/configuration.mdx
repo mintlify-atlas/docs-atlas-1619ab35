@@ -1,0 +1,328 @@
+---
+title: Configuration
+description: Configuration options and parameters for TCP Streamer
+---
+
+TCP Streamer provides extensive configuration options for audio streaming. These options are passed to the `start_stream()` command.
+
+## Configuration Schema
+
+All configuration is provided when calling `start_stream()`. There is no persistent configuration file; settings are managed by the frontend application.
+
+---
+
+## Device Configuration
+
+### device_name
+
+<ParamField path="device_name" type="string" required>
+  Name of the audio input device to capture from.
+  
+  **Valid values**: Any device name returned by `get_input_devices()`
+  
+  **Platform notes**:
+  - On Windows, loopback devices are prefixed with `[Loopback]`
+  - On Linux, ALSA virtual devices are automatically filtered out
+  - Device must support 2-channel (stereo) audio
+</ParamField>
+
+### is_loopback
+
+<ParamField path="is_loopback" type="boolean" default="false">
+  Whether the selected device is a loopback device for system audio capture.
+  
+  **Valid values**: `true`, `false`
+  
+  **Effect**:
+  - When `true`, searches output devices instead of input devices
+  - Uses `BufferSize::Default` instead of fixed buffer size
+  - Increases minimum ring buffer to 8000ms (vs 5000ms for standard input)
+  - Adjusts adaptive buffer range to 4000-12000ms
+  
+  **Platform support**: Windows only (WASAPI loopback)
+</ParamField>
+
+---
+
+## Network Configuration
+
+### ip
+
+<ParamField path="ip" type="string" required>
+  Target server IPv4 address.
+  
+  **Valid values**: Any valid IPv4 address (e.g., `"192.168.1.100"`, `"10.0.0.5"`)
+  
+  **Examples**:
+  - Local network: `"192.168.1.100"`
+  - Localhost: `"127.0.0.1"`
+</ParamField>
+
+### port
+
+<ParamField path="port" type="u16" required>
+  Target server port number.
+  
+  **Valid values**: 1-65535
+  
+  **Common values**: 5000-5010 (convention for audio streaming)
+</ParamField>
+
+### auto_reconnect
+
+<ParamField path="auto_reconnect" type="boolean" default="false">
+  Enable automatic reconnection on connection loss.
+  
+  **Valid values**: `true`, `false`
+  
+  **Behavior**:
+  - Uses exponential backoff: 2s → 4s → 8s → ... → 60s (max)
+  - Adds ±500ms jitter to prevent thundering herd
+  - Minimum retry delay: 2 seconds
+  - Drains stale audio from buffer before reconnecting
+</ParamField>
+
+### dscp_strategy
+
+<ParamField path="dscp_strategy" type="string" default="voip">
+  DSCP/QoS marking strategy for network packets.
+  
+  **Valid values**:
+  - `"voip"` - Expedited Forwarding (EF, DSCP 46, TOS 0xB8) - **Recommended for audio**
+  - `"lowdelay"` - Low Delay (IPTOS_LOWDELAY, TOS 0x10)
+  - `"throughput"` - Throughput (IPTOS_THROUGHPUT, TOS 0x08)
+  - `"besteffort"` - Best Effort (TOS 0x00)
+  
+  **Default**: Falls back to `"voip"` if invalid value provided
+  
+  **Platform notes**:
+  - Requires administrator/root privileges on some systems
+  - May be ignored by some network equipment
+  - Most effective on managed networks with QoS policies
+</ParamField>
+
+---
+
+## Audio Configuration
+
+### sample_rate
+
+<ParamField path="sample_rate" type="u32" default="48000">
+  Audio sample rate in Hz.
+  
+  **Valid values**: Device-dependent, typically:
+  - 44100 (CD quality)
+  - 48000 (professional audio, recommended)
+  - 96000 (high-resolution)
+  
+  **Effect on bitrate** (stereo, 16-bit):
+  - 44100 Hz = ~1411 kbps
+  - 48000 Hz = ~1536 kbps
+  - 96000 Hz = ~3072 kbps
+</ParamField>
+
+### buffer_size
+
+<ParamField path="buffer_size" type="u32" default="480">
+  Hardware audio buffer size in frames.
+  
+  **Valid values**: Device-dependent, typically 128-2048
+  
+  **Common values**:
+  - 128 frames (~2.7ms at 48kHz) - Ultra-low latency
+  - 480 frames (~10ms at 48kHz) - Balanced
+  - 1024 frames (~21ms at 48kHz) - Stable for older hardware
+  
+  **Platform notes**:
+  - Ignored for loopback devices (uses system default)
+  - Lower values = lower latency but higher CPU usage
+  - Too low may cause audio glitches on slower systems
+</ParamField>
+
+### chunk_size
+
+<ParamField path="chunk_size" type="u32" default="960">
+  Number of samples (frames) per network transmission packet.
+  
+  **Valid values**: Typically 240-4800
+  
+  **Effect**:
+  - Smaller values = lower latency, more CPU/network overhead
+  - Larger values = higher latency, more efficient
+  
+  **Recommended values**:
+  - 480 samples (~10ms at 48kHz) - Low latency
+  - 960 samples (~20ms at 48kHz) - Balanced
+  - 2400 samples (~50ms at 48kHz) - Efficient for high-bandwidth
+</ParamField>
+
+---
+
+## Buffer Configuration
+
+### ring_buffer_duration_ms
+
+<ParamField path="ring_buffer_duration_ms" type="u32" default="5000">
+  Duration of the internal ring buffer in milliseconds.
+  
+  **Valid values**: Any positive value, but automatically adjusted:
+  - Standard input: Minimum 5000ms
+  - Loopback device: Minimum 8000ms
+  
+  **Purpose**: Absorbs network jitter and timing variations
+  
+  **Memory usage** (stereo, at 48kHz):
+  - 5000ms = ~1.8 MB
+  - 8000ms = ~2.9 MB
+  - 10000ms = ~3.7 MB
+  
+  **Recommendation**: Use defaults unless experiencing buffer underruns
+</ParamField>
+
+### enable_adaptive_buffer
+
+<ParamField path="enable_adaptive_buffer" type="boolean" default="false">
+  Enable dynamic buffer resizing based on network conditions.
+  
+  **Valid values**: `true`, `false`
+  
+  **Behavior**:
+  - Monitors jitter every 10 seconds
+  - Increases buffer size if jitter >15ms
+  - Decreases buffer size if jitter &lt;5ms
+  - Only resizes if change exceeds 10% of current size
+  - Emits `buffer-resize-event` on changes
+  
+  **Note**: Currently tracks target size but does not perform actual ring buffer reallocation (future enhancement)
+</ParamField>
+
+### min_buffer_ms
+
+<ParamField path="min_buffer_ms" type="u32" default="2000">
+  Minimum buffer size for adaptive buffering.
+  
+  **Valid values**: Any positive value, but automatically adjusted:
+  - Standard input: Minimum 2000ms
+  - Loopback device: Minimum 4000ms
+  
+  **Only used when** `enable_adaptive_buffer` is `true`
+</ParamField>
+
+### max_buffer_ms
+
+<ParamField path="max_buffer_ms" type="u32" default="6000">
+  Maximum buffer size for adaptive buffering.
+  
+  **Valid values**: Any positive value, but automatically adjusted:
+  - Standard input: Maximum 6000ms
+  - Loopback device: Maximum 12000ms
+  
+  **Only used when** `enable_adaptive_buffer` is `true`
+</ParamField>
+
+---
+
+## Performance Configuration
+
+### high_priority
+
+<ParamField path="high_priority" type="boolean" default="false">
+  Set network thread to maximum priority.
+  
+  **Valid values**: `true`, `false`
+  
+  **Effect**:
+  - Reduces network thread scheduling latency
+  - May improve stability under heavy system load
+  - Requires elevated privileges on some systems
+  
+  **Warning**: May impact overall system responsiveness if system is under heavy load
+</ParamField>
+
+---
+
+## Audio Format
+
+TCP Streamer automatically negotiates audio format with the device:
+
+### Supported Formats
+
+1. **F32** (32-bit float) - Preferred, native on PipeWire/Linux
+2. **I16** (16-bit signed integer) - Common, good compatibility
+3. **U16** (16-bit unsigned integer) - Fallback for older devices
+
+### Transmission Format
+
+All audio is converted to **16-bit signed little-endian PCM** before transmission over the network, regardless of capture format.
+
+### Channel Configuration
+
+- **Required**: 2 channels (stereo)
+- Mono or multi-channel devices are not supported
+
+---
+
+## Configuration Examples
+
+### Low Latency Local Streaming
+
+```typescript
+await invoke('start_stream', {
+  device_name: 'Microphone (USB Audio)',
+  ip: '192.168.1.100',
+  port: 5000,
+  sample_rate: 48000,
+  buffer_size: 128,
+  ring_buffer_duration_ms: 5000,
+  auto_reconnect: true,
+  high_priority: true,
+  dscp_strategy: 'voip',
+  chunk_size: 480,
+  is_loopback: false,
+  enable_adaptive_buffer: false,
+  min_buffer_ms: 2000,
+  max_buffer_ms: 6000,
+});
+```
+
+### System Audio Capture (Windows)
+
+```typescript
+await invoke('start_stream', {
+  device_name: '[Loopback] Speakers (Realtek Audio)',
+  ip: '192.168.1.100',
+  port: 5000,
+  sample_rate: 48000,
+  buffer_size: 480, // Ignored for loopback
+  ring_buffer_duration_ms: 8000,
+  auto_reconnect: true,
+  high_priority: false,
+  dscp_strategy: 'voip',
+  chunk_size: 960,
+  is_loopback: true,
+  enable_adaptive_buffer: true,
+  min_buffer_ms: 4000,
+  max_buffer_ms: 12000,
+});
+```
+
+### WiFi/Unstable Network
+
+```typescript
+await invoke('start_stream', {
+  device_name: 'Microphone (USB Audio)',
+  ip: '192.168.1.100',
+  port: 5000,
+  sample_rate: 48000,
+  buffer_size: 480,
+  ring_buffer_duration_ms: 10000, // Larger buffer
+  auto_reconnect: true,
+  high_priority: true,
+  dscp_strategy: 'voip',
+  chunk_size: 2400, // Larger chunks
+  is_loopback: false,
+  enable_adaptive_buffer: true,
+  min_buffer_ms: 5000,
+  max_buffer_ms: 15000,
+});
+```

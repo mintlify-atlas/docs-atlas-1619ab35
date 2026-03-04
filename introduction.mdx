@@ -1,0 +1,178 @@
+---
+title: Introduction
+description: Learn about TCP Streamer, a cross-platform audio streaming application that captures and streams audio over TCP with minimal latency
+---
+
+## What is TCP Streamer?
+
+TCP Streamer is a lightweight, cross-platform desktop application built with Tauri that captures audio from your computer and streams it over TCP to any server. It's designed for integration with multi-room audio systems like Snapcast, custom audio pipelines, and distributed audio setups.
+
+<Note>
+  **Version 1.9.0** introduces enhanced connection resilience with exponential backoff and proper socket management to prevent connection storms during network disruptions.
+</Note>
+
+## How It Works
+
+TCP Streamer follows a simple but robust architecture:
+
+```
+┌─────────────┐      ┌──────────────┐      ┌─────────────┐
+│   Audio     │      │     TCP      │      │   Server    │
+│   Input     │─────▶│   Streamer   │─────▶│ (Snapcast,  │
+│  (Device)   │      │              │      │  Custom)    │
+└─────────────┘      └──────────────┘      └─────────────┘
+```
+
+<Steps>
+  <Step title="Capture">
+    Reads audio from your selected input device at a configurable sample rate and buffer size
+  </Step>
+  
+  <Step title="Buffer">
+    Pushes audio into a lock-free **Ring Buffer** to absorb network jitter and ensure smooth playback
+  </Step>
+  
+  <Step title="Process">
+    Analyzes audio RMS (Root Mean Square) to detect silence and optimize bandwidth
+  </Step>
+  
+  <Step title="Stream">
+    A dedicated network thread reads from the buffer and sends raw PCM data via async TCP
+  </Step>
+  
+  <Step title="Monitor">
+    Provides real-time health monitoring including buffer usage, latency, bitrate, and connection quality
+  </Step>
+</Steps>
+
+## Key Features
+
+### Core Functionality
+
+- **Real-time Audio Streaming** - Low-latency PCM audio over TCP with sub-millisecond timing precision
+- **Connection Reliability** - 5-second write timeout, graceful shutdown, and exponential backoff reconnection
+- **Smart Deep Sleep** - Automatically disconnects on prolonged silence to prevent zombie connections
+- **Robust Audio Engine** - Native F32 internal architecture eliminates clipping and Linux noise issues
+- **Prefill Gate** - Buffers 1000ms before transmission to eliminate startup stutter
+- **Adaptive Buffer Sizing** - Automatically adjusts buffer based on network jitter
+- **Silence Detection** - RMS-based bandwidth optimization stops sending during silence
+- **Multi-Profile Support** - Save and quickly switch between different configurations
+- **System Tray Integration** - Runs in background, always accessible from system tray
+
+### Platform-Specific Features
+
+<Tabs>
+  <Tab title="Windows">
+    - **Native WASAPI Loopback** - Capture system audio without virtual cables
+    - Auto-adjusted 8000ms base buffer for WASAPI stability
+    - Compatible with .msi and .exe installers
+  </Tab>
+  
+  <Tab title="macOS">
+    - Intel and Apple Silicon support
+    - CoreAudio integration for low-latency capture
+    - LaunchAgent autostart support
+    - Distributed as .dmg package
+  </Tab>
+  
+  <Tab title="Linux">
+    - ALSA and PulseAudio support
+    - Available as .deb and .AppImage
+    - Systemd autostart integration
+    - Optimized for Ubuntu, Debian, Fedora, and Arch
+  </Tab>
+</Tabs>
+
+### Audio Configuration
+
+- **Sample Rates**: 44.1 kHz or 48 kHz (CD quality)
+- **Buffer Sizes**: 256, 512, 1024, or 2048 samples for latency tuning
+- **Input Devices**: Scans all host APIs (WASAPI, MME, CoreAudio) to find available devices
+- **Visual Volume Indicator**: Real-time RMS meter for precise threshold tuning
+
+### Advanced Features
+
+- **Precision Audio Pacing** - Token Bucket algorithm for mathematically perfect transmission timing
+- **Hybrid Spin-Wait Strategy** - Sub-millisecond timing precision via spin-loop
+- **Network Presets** - One-click optimization for Ethernet, WiFi, or poor connections
+- **DSCP/TOS Support** - QoS tagging (VoIP, Low Delay, Throughput) for network prioritization
+- **Dynamic Chunk Size** - Configurable buffer chunks (128-4096 samples)
+- **High Priority Threading** - Optional high-priority thread for reduced jitter
+- **Real-time Statistics** - Monitor bitrate, uptime, data sent, and network quality
+
+## Use Cases
+
+### Multi-Room Audio with Snapcast
+
+Stream audio from your computer to a Snapcast server, enabling synchronized playback across multiple rooms:
+
+```bash
+TCP Streamer → 192.168.1.100:4953 → Snapcast Server → Multiple Speakers
+```
+
+### Remote Audio Monitoring
+
+Send audio from monitoring devices or security cameras to a central server for real-time oversight.
+
+### Audio Distribution
+
+Distribute audio from a single source to multiple recipients via a TCP relay server, perfect for hotels, restaurants, or retail environments.
+
+### Development & Testing
+
+Test audio processing pipelines, codecs, or streaming protocols with a reliable, configurable audio source.
+
+### Virtual DJ/Broadcast Setup
+
+Stream DJ mixes or live broadcasts from your computer to remote servers for distribution.
+
+## Technical Specifications
+
+### Audio Format
+
+- **Format**: Raw PCM (Pulse Code Modulation)
+- **Bit Depth**: 16-bit signed integers, little-endian
+- **Channels**: 2 (stereo)
+- **Sample Rates**: 44100 Hz or 48000 Hz
+- **Buffering**: Lock-free Ring Buffer (configurable 2s-15s capacity)
+
+### Technology Stack
+
+- **Frontend**: HTML, CSS, JavaScript with Vite
+- **Backend**: Rust with Tauri v2
+- **Audio Library**: cpal 0.15 (cross-platform audio library)
+- **Storage**: tauri-plugin-store for settings persistence
+- **Networking**: Async TCP with socket2 for advanced socket options
+- **Threading**: thread-priority for high-priority audio threads
+
+<Warning>
+  TCP Streamer streams **uncompressed PCM audio**. At 48 kHz stereo, this generates approximately **1.5 Mbps** of network traffic. Ensure your network can handle this bandwidth for stable streaming.
+</Warning>
+
+## System Requirements
+
+### Minimum Requirements
+
+- **Operating System**: macOS 10.15+, Windows 10+, Ubuntu 20.04+
+- **RAM**: 100 MB available memory
+- **CPU**: Any modern processor (minimal CPU usage)
+- **Network**: Stable network connection to TCP server
+- **Disk Space**: ~10 MB for application files
+
+### Supported Platforms
+
+- macOS (Intel & Apple Silicon)
+- Windows 10/11 (64-bit)
+- Linux (Ubuntu, Debian, Fedora, Arch)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Download and install TCP Streamer on your platform
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get streaming in minutes with our step-by-step guide
+  </Card>
+</CardGroup>

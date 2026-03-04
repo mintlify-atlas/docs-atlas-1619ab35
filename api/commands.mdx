@@ -1,0 +1,212 @@
+---
+title: Commands
+description: Reference for all Tauri commands available in TCP Streamer
+---
+
+TCP Streamer exposes several Tauri commands that can be invoked from the frontend to control audio streaming functionality.
+
+## get_input_devices
+
+Retrieves a list of available audio input devices on the system.
+
+```rust
+get_input_devices(include_loopback: bool) -> Result<Vec<String>, String>
+```
+
+### Parameters
+
+<ParamField path="include_loopback" type="boolean" required>
+  Whether to include loopback devices (Windows only). When `true`, output devices are also listed with a `[Loopback]` prefix for capturing system audio.
+</ParamField>
+
+### Returns
+
+<ResponseField name="devices" type="Vec<String>">
+  An array of device names available for audio capture. On Windows, loopback devices are prefixed with `[Loopback]`.
+</ResponseField>
+
+### Error Cases
+
+Returns an error string if:
+- No audio host is available
+- Unable to enumerate devices
+
+### Platform Notes
+
+- **Linux**: Filters out ALSA virtual devices (`default`, `sysdefault`, `null`, `hw:*`) that may not work reliably
+- **Windows**: Supports WASAPI loopback for system audio capture when `include_loopback` is true
+- **macOS**: Standard CoreAudio devices only
+
+---
+
+## start_stream
+
+Initiates an audio streaming session to a remote TCP server.
+
+```rust
+start_stream(
+  state: tauri::State<'_, AudioState>,
+  device_name: String,
+  ip: String,
+  port: u16,
+  sample_rate: u32,
+  buffer_size: u32,
+  ring_buffer_duration_ms: u32,
+  auto_reconnect: bool,
+  high_priority: bool,
+  dscp_strategy: String,
+  chunk_size: u32,
+  is_loopback: bool,
+  enable_adaptive_buffer: bool,
+  min_buffer_ms: u32,
+  max_buffer_ms: u32,
+  app_handle: AppHandle
+) -> Result<(), String>
+```
+
+### Parameters
+
+<ParamField path="device_name" type="string" required>
+  Name of the audio input device to capture from. Must match a device name returned by `get_input_devices()`.
+</ParamField>
+
+<ParamField path="ip" type="string" required>
+  Target server IP address (IPv4).
+</ParamField>
+
+<ParamField path="port" type="u16" required>
+  Target server port number (1-65535).
+</ParamField>
+
+<ParamField path="sample_rate" type="u32" required>
+  Audio sample rate in Hz (e.g., 44100, 48000).
+</ParamField>
+
+<ParamField path="buffer_size" type="u32" required>
+  Hardware buffer size in frames. Used for standard input devices only. Loopback devices use system default.
+</ParamField>
+
+<ParamField path="ring_buffer_duration_ms" type="u32" required>
+  Duration of the internal ring buffer in milliseconds. Automatically adjusted to minimum 5000ms for standard input and 8000ms for WASAPI loopback.
+</ParamField>
+
+<ParamField path="auto_reconnect" type="boolean" required>
+  Enable automatic reconnection on connection loss. Uses exponential backoff (2s minimum, 60s maximum) with jitter.
+</ParamField>
+
+<ParamField path="high_priority" type="boolean" required>
+  Set network thread to maximum priority for reduced latency.
+</ParamField>
+
+<ParamField path="dscp_strategy" type="string" required>
+  DSCP/QoS strategy for network packets. Valid values:
+  - `"voip"` - Expedited Forwarding (EF, 0xB8)
+  - `"lowdelay"` - Low Delay (IPTOS_LOWDELAY, 0x10)
+  - `"throughput"` - Throughput (IPTOS_THROUGHPUT, 0x08)
+  - `"besteffort"` - Best Effort (0x00)
+  
+  Defaults to `"voip"` if invalid value provided.
+</ParamField>
+
+<ParamField path="chunk_size" type="u32" required>
+  Number of samples per network transmission chunk.
+</ParamField>
+
+<ParamField path="is_loopback" type="boolean" required>
+  Whether the selected device is a loopback device (for system audio capture).
+</ParamField>
+
+<ParamField path="enable_adaptive_buffer" type="boolean" required>
+  Enable dynamic buffer resizing based on network jitter. Adjusts buffer size between `min_buffer_ms` and `max_buffer_ms`.
+</ParamField>
+
+<ParamField path="min_buffer_ms" type="u32" required>
+  Minimum buffer size in milliseconds for adaptive buffering. Automatically adjusted to 2000ms (standard) or 4000ms (loopback) minimum.
+</ParamField>
+
+<ParamField path="max_buffer_ms" type="u32" required>
+  Maximum buffer size in milliseconds for adaptive buffering. Automatically adjusted to 6000ms (standard) or 12000ms (loopback) maximum.
+</ParamField>
+
+### Returns
+
+<ResponseField name="result" type="()">
+  Returns `Ok(())` on successful stream initiation. The stream starts asynchronously; status updates are sent via events.
+</ResponseField>
+
+### Error Cases
+
+Returns an error string if:
+- Device not found or inaccessible
+- Unsupported audio format
+- Unable to configure audio stream
+- State lock acquisition fails
+
+### Behavior
+
+- Stops any existing stream before starting a new one
+- Automatically prefills buffer with 1000ms of audio before transmission
+- Uses strict clock-based pacing to maintain constant bitrate
+- Sends audio as 16-bit little-endian PCM over TCP
+- Emits `log-event`, `stats-event`, `quality-event`, and `buffer-resize-event` during operation
+
+---
+
+## stop_stream
+
+Stops the currently active audio streaming session.
+
+```rust
+stop_stream(state: tauri::State<'_, AudioState>) -> Result<(), String>
+```
+
+### Parameters
+
+No user-provided parameters (state is managed internally).
+
+### Returns
+
+<ResponseField name="result" type="()">
+  Returns `Ok(())` when the stop command is successfully sent. The stream stops asynchronously.
+</ResponseField>
+
+### Error Cases
+
+Returns an error string if:
+- State lock acquisition fails
+- Unable to send stop command
+
+### Behavior
+
+- Gracefully closes TCP connection with FIN packets
+- Disables auto-reconnect if enabled
+- Clears internal stream state
+- Safe to call even if no stream is active
+
+---
+
+## get_os_type
+
+Returns the current operating system platform.
+
+```rust
+get_os_type() -> String
+```
+
+### Parameters
+
+None.
+
+### Returns
+
+<ResponseField name="os" type="string">
+  Operating system identifier. Possible values:
+  - `"windows"` - Windows
+  - `"linux"` - Linux
+  - `"macos"` - macOS
+  - Other platform-specific values from Rust's `std::env::consts::OS`
+</ResponseField>
+
+### Usage
+
+Useful for conditional UI features (e.g., showing loopback options only on Windows).

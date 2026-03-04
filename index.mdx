@@ -1,97 +1,296 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: TCP Streamer Documentation
+description: Stream system audio over TCP with minimal latency and robust architecture
+mode: custom
 ---
 
-## Setting up
+<div className="relative w-full bg-gradient-to-br from-[#0f1117] via-[#1a1d27] to-[#0f1117] dark:bg-gradient-to-br dark:from-[#0f1117] dark:via-[#1a1d27] dark:to-[#0f1117] overflow-hidden py-20">
+  <div className="max-w-7xl mx-auto px-6 lg:px-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      <div className="lg:col-span-7 space-y-8">
+        <div className="space-y-6">
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white dark:text-white leading-tight">
+            Stream Audio Over TCP
+          </h1>
+          <p className="text-xl text-gray-300 dark:text-gray-300 max-w-2xl leading-relaxed">
+            A lightweight, cross-platform desktop application built with Tauri. Capture system audio and stream it to any TCP server with sub-millisecond timing precision and intelligent buffering.
+          </p>
+        </div>
+        
+        <div className="flex flex-wrap gap-4">
+          <a 
+            href="/quickstart" 
+            className="inline-flex items-center px-8 py-3.5 text-base font-semibold text-black bg-[#94cb04] hover:bg-[#a8df05] rounded-lg transition-colors no-underline"
+          >
+            Get Started
+            <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </a>
+          <a 
+            href="/installation" 
+            className="inline-flex items-center px-8 py-3.5 text-base font-semibold text-white bg-white/10 hover:bg-white/20 border border-white/30 hover:border-[#94cb04] rounded-lg transition-colors no-underline"
+          >
+            Download
+          </a>
+        </div>
 
-Get your documentation site up and running in minutes.
+        <div className="flex flex-wrap gap-6 pt-4">
+          <div className="flex items-center gap-2 text-gray-400 dark:text-gray-400">
+            <svg className="w-5 h-5 text-[#94cb04]" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="text-sm font-medium">Windows, macOS, Linux</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-400 dark:text-gray-400">
+            <svg className="w-5 h-5 text-[#94cb04]" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="text-sm font-medium">MIT Licensed</span>
+          </div>
+          <div className="flex items-center gap-2 text-gray-400 dark:text-gray-400">
+            <svg className="w-5 h-5 text-[#94cb04]" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="text-sm font-medium">Built with Tauri + Rust</span>
+          </div>
+        </div>
+      </div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="relative">
+          <div className="absolute inset-0 bg-[#94cb04]/20 dark:bg-[#94cb04]/20 blur-3xl rounded-full"></div>
+          <div className="relative bg-[#1a1d27] dark:bg-[#1a1d27] rounded-2xl border border-[#27272a] dark:border-[#27272a] p-6 shadow-2xl">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-3 h-3 rounded-full bg-red-500"></div>
+              <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            </div>
+            <div className="space-y-3 font-mono text-sm">
+              <div className="text-gray-400 dark:text-gray-400">$ tcp-streamer --version</div>
+              <div className="text-[#94cb04]">TCP Streamer v1.9.0</div>
+              <div className="text-gray-400 dark:text-gray-400 mt-4">Status: <span className="text-green-400">Connected</span></div>
+              <div className="text-gray-400 dark:text-gray-400">Bitrate: <span className="text-white">1536 kbps</span></div>
+              <div className="text-gray-400 dark:text-gray-400">Buffer: <span className="text-white">4000ms</span></div>
+              <div className="text-gray-400 dark:text-gray-400">Latency: <span className="text-green-400">~2.1s</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-## Make it yours
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">Quick start</h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      Get TCP Streamer running in minutes. Follow these steps to start streaming audio to your TCP server.
+    </p>
+  </div>
 
-Design a docs site that looks great and empowers your users.
+  <Steps>
+    <Step title="Download and install">
+      Download the latest release for your platform from the [releases page](https://github.com/NaturalDevCR/TCP-Streamer/releases).
+      
+      - **macOS**: Open the `.dmg` file and drag to Applications
+      - **Windows**: Run the `.msi` or `.exe` installer
+      - **Linux**: Install the `.AppImage` or `.deb` package
+    </Step>
+    
+    <Step title="Select your audio source">
+      Launch TCP Streamer and choose the audio input device you want to stream.
+      
+      For system audio capture:
+      - **Windows**: Enable **"Loopback Mode (Windows)"** to capture system audio via WASAPI
+      - **macOS**: Use [BlackHole](https://github.com/ExistentialAudio/BlackHole) or similar virtual audio device
+      - **Linux**: Configure PulseAudio or ALSA loopback
+    </Step>
+    
+    <Step title="Configure your destination">
+      Enter your TCP server details:
+      
+      ```bash Example Configuration
+      IP Address: 192.168.1.100
+      Port: 4953
+      Sample Rate: 48000 Hz
+      Buffer Size: 1024 samples
+      ```
+      
+      <Note>
+        For Snapcast servers, use port **4953** (default TCP streaming port).
+      </Note>
+    </Step>
+    
+    <Step title="Start streaming">
+      Click **Start Streaming** and monitor the real-time statistics:
+      
+      - Connection status and uptime
+      - Current bitrate and data sent
+      - Network quality score and jitter
+      - Buffer health and latency
+      
+      Enable **Auto-reconnect** to maintain connection stability, and **Auto-start on launch** to run at system boot.
+    </Step>
+  </Steps>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">Core features</h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      Built for reliability and performance with advanced audio streaming capabilities.
+    </p>
+  </div>
 
-## Create beautiful pages
+  <CardGroup cols={2}>
+    <Card title="Real-time TCP streaming" icon="broadcast-tower" href="/features/audio-streaming">
+      Stream raw PCM audio over TCP with sub-millisecond timing precision using token bucket pacing.
+    </Card>
+    <Card title="Silence detection" icon="volume-xmark" href="/features/silence-detection">
+      RMS-based silence detection automatically stops transmission to save bandwidth when no audio is playing.
+    </Card>
+    <Card title="Adaptive buffering" icon="layer-group" href="/features/adaptive-buffering">
+      Dynamic buffer sizing adjusts to network jitter in real-time, preventing dropouts on WiFi and unstable connections.
+    </Card>
+    <Card title="Configuration profiles" icon="sliders" href="/features/profiles">
+      Save and switch between multiple configurations for different streaming scenarios and destinations.
+    </Card>
+    <Card title="Cross-platform support" icon="desktop" href="/platforms/windows">
+      Native system audio capture on Windows (WASAPI), macOS (CoreAudio), and Linux (ALSA/PulseAudio).
+    </Card>
+    <Card title="Network optimization" icon="gauge-high" href="/configuration/network-settings">
+      QoS tagging (DSCP/TOS), high-priority threading, and network presets for Ethernet, WiFi, and poor connections.
+    </Card>
+  </CardGroup>
+</div>
 
-Everything you need to create world-class documentation.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">Use cases</h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      TCP Streamer integrates seamlessly with multi-room audio systems and custom audio pipelines.
+    </p>
+  </div>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <a href="/use-cases/snapcast" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#94cb04] dark:hover:border-[#94cb04] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <div className="w-12 h-12 rounded-lg bg-[#94cb04]/10 dark:bg-[#94cb04]/10 flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-[#94cb04]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2 group-hover:text-[#94cb04] transition-colors">Snapcast integration</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Stream audio to Snapcast servers for synchronized multi-room playback across your home or business.
+        </p>
+        <div className="flex items-center text-sm font-medium text-[#94cb04] group-hover:text-[#94cb04]">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
 
-## Need inspiration?
+    <a href="/use-cases/multi-room-audio" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#94cb04] dark:hover:border-[#94cb04] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <div className="w-12 h-12 rounded-lg bg-[#94cb04]/10 dark:bg-[#94cb04]/10 flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-[#94cb04]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2 group-hover:text-[#94cb04] transition-colors">Multi-room audio</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Distribute audio from a single source to multiple rooms with synchronized playback and individual volume control.
+        </p>
+        <div className="flex items-center text-sm font-medium text-[#94cb04] group-hover:text-[#94cb04]">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+    <a href="/use-cases/remote-monitoring" className="group block rounded-2xl border border-gray-200 dark:border-[#27272a] hover:border-[#94cb04] dark:hover:border-[#94cb04] overflow-hidden transition-colors no-underline bg-white dark:bg-[#1a1d27]">
+      <div className="p-6">
+        <div className="w-12 h-12 rounded-lg bg-[#94cb04]/10 dark:bg-[#94cb04]/10 flex items-center justify-center mb-4">
+          <svg className="w-6 h-6 text-[#94cb04]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+        </div>
+        <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-2 group-hover:text-[#94cb04] transition-colors">Remote monitoring</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+          Send audio from security cameras, monitoring devices, or remote locations to a central server for real-time analysis.
+        </p>
+        <div className="flex items-center text-sm font-medium text-[#94cb04] group-hover:text-[#94cb04]">
+          Learn more
+          <svg className="ml-1 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-semibold text-gray-900 dark:text-white mb-4">Explore by topic</h2>
+    <p className="text-base text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+      Deep dive into configuration, platform-specific guides, and architecture details.
+    </p>
+  </div>
+
+  <CardGroup cols={3}>
+    <Card title="Configuration" icon="gear" href="/configuration/audio-settings">
+      Audio settings, network optimization, automation, and advanced options.
+    </Card>
+    <Card title="Platform guides" icon="computer" href="/platforms/windows">
+      Platform-specific setup for Windows, macOS, and Linux systems.
+    </Card>
+    <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+      Technical deep dive into the audio pipeline, network stack, and buffering system.
+    </Card>
+    <Card title="API reference" icon="code" href="/api/commands">
+      Tauri commands, event system, and configuration schema.
+    </Card>
+    <Card title="Troubleshooting" icon="wrench" href="/troubleshooting/connection-issues">
+      Solutions for connection issues, audio problems, and performance tuning.
+    </Card>
+    <Card title="Changelog" icon="clock-rotate-left" href="/changelog/v1-9-0">
+      Release notes and version history with feature improvements and bug fixes.
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+  <div className="relative rounded-2xl bg-gradient-to-br from-[#1a1d27] to-[#0f1117] dark:from-[#1a1d27] dark:to-[#0f1117] border border-[#27272a] dark:border-[#27272a] p-12 overflow-hidden">
+    <div className="absolute inset-0 bg-[#94cb04]/5 dark:bg-[#94cb04]/5"></div>
+    <div className="relative z-10 text-center">
+      <h2 className="text-3xl font-bold text-white dark:text-white mb-4">Ready to stream?</h2>
+      <p className="text-lg text-gray-300 dark:text-gray-300 mb-8 max-w-2xl mx-auto">
+        Download TCP Streamer and start streaming system audio to your TCP server in minutes. Works seamlessly with Snapcast and custom audio pipelines.
+      </p>
+      <div className="flex flex-wrap justify-center gap-4">
+        <a 
+          href="/installation" 
+          className="inline-flex items-center px-8 py-3.5 text-base font-semibold text-black bg-[#94cb04] hover:bg-[#a8df05] rounded-lg transition-colors no-underline"
+        >
+          Download Now
+          <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+        </a>
+        <a 
+          href="https://github.com/NaturalDevCR/TCP-Streamer" 
+          className="inline-flex items-center px-8 py-3.5 text-base font-semibold text-white bg-white/10 hover:bg-white/20 border border-white/30 hover:border-[#94cb04] rounded-lg transition-colors no-underline"
+        >
+          View on GitHub
+        </a>
+      </div>
+    </div>
+  </div>
+</div>

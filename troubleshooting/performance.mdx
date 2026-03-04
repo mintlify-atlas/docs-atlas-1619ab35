@@ -1,0 +1,632 @@
+---
+title: "Performance optimization"
+description: "Diagnose and resolve high CPU usage, buffer problems, network issues, and latency concerns"
+---
+
+This guide helps you optimize TCP Streamer's performance for your specific hardware, network, and use case requirements.
+
+## CPU and resource usage
+
+<AccordionGroup>
+  <Accordion title="High CPU usage" icon="microchip">
+    **Symptom**: TCP Streamer consumes excessive CPU resources, causing system slowdown or thermal issues.
+
+    **Normal CPU usage**:
+    - **Idle (not streaming)**: &lt;1% CPU
+    - **Active streaming**: 1-5% CPU on modern systems
+    - **Peak during buffering**: 5-10% CPU briefly
+
+    **If CPU usage exceeds these levels**:
+
+    1. **Increase buffer size**
+       - Change from 256 or 512 to 1024 or 2048 samples
+       - Reduces callback frequency from audio system
+       - Trade-off: Slightly higher minimum latency
+       - **Recommended**: 1024 for balanced performance
+
+       | Buffer Size | Callbacks/sec (48kHz) | CPU Impact |
+       | ----------- | --------------------- | ---------- |
+       | 256         | ~188/sec              | High       |
+       | 512         | ~94/sec               | Medium     |
+       | 1024        | ~47/sec               | Low        |
+       | 2048        | ~23/sec               | Very Low   |
+
+    2. **Lower sample rate**
+       - Switch from 48 kHz to 44.1 kHz
+       - Reduces data processing by ~8%
+       - Use if 48 kHz isn't required for your use case
+
+    3. **Disable unused features**
+       - Turn off adaptive buffering if network is stable
+       - Disable silence detection if not needed
+       - Reduce activity log verbosity
+
+    4. **Check for background interference**
+       - Antivirus scanning audio data
+       - Other audio applications competing for resources
+       - System performing background tasks (updates, indexing)
+
+    5. **Hardware acceleration (v1.7.0+)**
+       - Hybrid spin-wait strategy reduces CPU usage while maintaining precision
+       - Automatic in v1.7.0+, no configuration needed
+
+    <Warning>If CPU usage is consistently above 20%, check for system issues unrelated to TCP Streamer, such as malware, failing hardware, or driver problems.</Warning>
+  </Accordion>
+
+  <Accordion title="Memory usage concerns" icon="memory">
+    **Symptom**: TCP Streamer memory usage seems high or grows over time.
+
+    **Normal memory usage**:
+    - **Base application**: ~50-100 MB
+    - **Ring buffer (8000ms WASAPI)**: ~2.3 MB
+    - **Ring buffer (5000ms standard)**: ~1.4 MB
+    - **Total typical usage**: ~100-150 MB
+
+    **Ring buffer memory calculation**:
+
+    ```
+    Memory = Sample Rate × Channels × Bytes per Sample × Buffer Duration
+    
+    Example (48kHz, stereo, 16-bit, 8000ms):
+    48000 × 2 × 2 × 8.0 = 1,536,000 bytes ≈ 1.5 MB
+    ```
+
+    **Large buffer configurations**:
+    - 15 second buffer at 48kHz: ~2.9 MB
+    - 20 second buffer at 48kHz: ~3.8 MB
+    - Memory usage is minimal even with large buffers
+
+    **If memory usage is excessive**:
+
+    1. **Check for memory leaks**
+       - Monitor memory usage over time
+       - If it continuously grows without limit, report as bug
+       - Normal usage should stabilize after initial buffer allocation
+
+    2. **Restart the application**
+       - Clears any accumulated memory
+       - Resets buffer allocations
+
+    3. **Reduce buffer size**
+       - Only if memory is severely constrained
+       - Impact is minimal unless using 30+ second buffers
+
+    <Info>Ring buffer memory usage is constant during streaming and is released when streaming stops. Memory should not grow indefinitely.</Info>
+  </Accordion>
+
+  <Accordion title="Application responsiveness" icon="gauge-high">
+    **Symptom**: UI feels sluggish or unresponsive during streaming.
+
+    **Causes and solutions**:
+
+    1. **High CPU usage**
+       - See "High CPU usage" section above
+       - Increase buffer size to reduce processing frequency
+
+    2. **Slow disk I/O**
+       - If logs are being written to slow disk
+       - Move application to SSD if on HDD
+       - Reduce logging verbosity
+
+    3. **UI update frequency**
+       - Real-time statistics update frequently
+       - Normal behavior, should not cause significant issues
+       - If problematic, minimize window to tray
+
+    4. **System-wide performance issues**
+       - Check overall system resources
+       - Close unnecessary applications
+       - Ensure adequate free RAM
+
+    <Tip>Running in system tray (minimized) reduces UI overhead while streaming continues in the background.</Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Buffer optimization
+
+<AccordionGroup>
+  <Accordion title="Buffer underruns/dropouts" icon="wave-pulse">
+    **Symptom**: Audio has brief gaps, clicks, or pops indicating buffer starvation.
+
+    **Understanding buffers in TCP Streamer**:
+
+    - **Audio buffer**: Hardware buffer (256-2048 samples, ~5-43ms)
+    - **Ring buffer**: Software buffer (2000-15000ms)
+    - **Network buffer**: TCP send buffer (system-managed)
+
+    **Buffer underrun causes**:
+
+    1. **Ring buffer too small for network jitter**
+       - WiFi has variable latency
+       - Small buffer can't absorb jitter spikes
+
+    2. **Network congestion**
+       - Packets delayed or lost
+       - Buffer drains waiting for network
+
+    3. **CPU starvation**
+       - System can't keep up with audio callbacks
+       - Processing delays cause buffer gaps
+
+    **Solutions**:
+
+    1. **Enable adaptive buffering**
+       - Automatically adjusts buffer size based on jitter
+       - Prevents underruns without manual tuning
+       - Set appropriate min/max range for your network
+
+    2. **Increase base ring buffer**
+       - **Ethernet**: 2000-4000ms
+       - **WiFi**: 4000-8000ms
+       - **WiFi (Poor)**: 8000-15000ms
+
+    3. **Use network presets**
+       - **Ethernet**: Optimized for stable wired
+       - **WiFi**: Balanced for wireless
+       - **WiFi (Poor)**: Maximum stability
+
+    4. **Increase audio buffer size**
+       - 512 → 1024 or 1024 → 2048
+       - Gives more time between callbacks
+       - Reduces real-time processing pressure
+
+    5. **Enable high priority thread (Advanced)**
+       - Gives audio processing priority over other tasks
+       - Can reduce latency jitter
+       - May impact other applications
+
+    <Warning>Larger buffers increase latency. For synchronized multi-room audio, latency usually isn't critical and can be compensated by the server (Snapcast supports delay adjustment).</Warning>
+  </Accordion>
+
+  <Accordion title="Excessive latency" icon="clock">
+    **Symptom**: Audio arrives at the server with noticeable delay (seconds behind real-time).
+
+    **Latency components**:
+
+    ```
+    Total Latency = Audio Buffer + Ring Buffer + Network Delay + Server Processing
+    
+    Example (WiFi with adaptive buffer):
+    43ms (2048 buffer @ 48kHz) + 4000ms (ring) + 20ms (network) + 50ms (server) ≈ 4.1 seconds
+    ```
+
+    **Reducing latency**:
+
+    1. **Use wired Ethernet**
+       - Eliminates WiFi jitter
+       - Allows smaller ring buffer (2000ms)
+       - Network delay drops to 1-5ms
+       - Can achieve ~2 second total latency
+
+    2. **Decrease ring buffer**
+       - Only if network is very stable
+       - Monitor network quality indicator
+       - Should stay "Excellent" or "Good"
+       - Risk: More dropouts if jitter increases
+
+    3. **Use smaller audio buffer**
+       - 1024 → 512 or 512 → 256
+       - Reduces first-stage latency
+       - Impact is small (a few milliseconds)
+       - May increase CPU usage
+
+    4. **Disable adaptive buffering**
+       - If network is stable, fixed buffer is smaller
+       - Adaptive buffer tends toward maximum under uncertainty
+
+    5. **Server-side latency compensation**
+       - Snapcast and similar servers can adjust client delays
+       - Use server configuration to sync multiple clients
+       - TCP Streamer latency is consistent and predictable
+
+    **Latency by configuration**:
+
+    | Configuration       | Ring Buffer | Network | Total (approx) |
+    | ------------------- | ----------- | ------- | -------------- |
+    | Ethernet (optimal)  | 2000ms      | 1-5ms   | ~2 seconds     |
+    | WiFi (good signal)  | 4000ms      | 10-30ms | ~4 seconds     |
+    | WiFi (poor signal)  | 8000ms      | 30-100ms| ~8 seconds     |
+    | WASAPI WiFi laptop  | 4000-12000ms| 20-50ms | 4-12 seconds   |
+
+    <Info>For multi-room synchronized audio, latency consistency matters more than absolute latency. TCP Streamer provides stable, predictable latency that servers can compensate.</Info>
+  </Accordion>
+
+  <Accordion title="Buffer constantly resizing (adaptive)" icon="arrows-left-right">
+    **Symptom**: Activity log shows frequent "Buffer resized" messages.
+
+    **Normal behavior**:
+    - Adaptive buffer checks jitter every 10 seconds
+    - Adjusts if jitter trends above or below thresholds
+    - Should stabilize after 30-60 seconds
+    - Occasional adjustments are normal
+
+    **Excessive resizing (multiple times per minute)**:
+
+    1. **Unstable network**
+       - WiFi signal fluctuating
+       - Interference from other devices
+       - Congestion from other traffic
+
+       **Solutions**:
+       - Move closer to router
+       - Switch to 5GHz WiFi band
+       - Use wired Ethernet
+       - Increase adaptive buffer maximum
+
+    2. **Aggressive min/max range**
+       - Small difference between min and max
+       - Insufficient headroom for jitter variation
+
+       **Solutions**:
+       - Widen the min/max range
+       - Example: 2000-6000ms → 2000-10000ms
+       - Allows more gradual adjustments
+
+    3. **System resource contention**
+       - Other applications causing scheduling jitter
+       - Antivirus scanning
+       - System updates
+
+       **Solutions**:
+       - Close unnecessary applications
+       - Pause system updates during critical streaming
+       - Disable real-time antivirus scanning of audio processes
+
+    <Tip>Check the network quality indicator. If it fluctuates between "Good" and "Poor", your network conditions are unstable and adaptive buffer will resize frequently.</Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Network performance
+
+<AccordionGroup>
+  <Accordion title="Network quality degradation" icon="network-wired">
+    **Symptom**: Network quality indicator shows "Fair" or "Poor" when expecting "Excellent" or "Good".
+
+    **Network quality thresholds**:
+
+    - **Excellent**: Jitter < 5ms
+    - **Good**: Jitter 5-20ms
+    - **Fair**: Jitter 20-50ms
+    - **Poor**: Jitter > 50ms
+
+    **Diagnosing network issues**:
+
+    1. **Check ping statistics**
+       ```bash
+       # Continuous ping to server
+       ping -t 192.168.1.100  # Windows
+       ping 192.168.1.100     # Linux/macOS
+       
+       # Look for:
+       # - Average latency (should be &lt;10ms on LAN)
+       # - Jitter (standard deviation)
+       # - Packet loss (should be 0%)
+       ```
+
+    2. **Test network throughput**
+       ```bash
+       # Install iperf3
+       # On server:
+       iperf3 -s
+       
+       # On client:
+       iperf3 -c 192.168.1.100
+       
+       # Audio streaming requires:
+       # 48kHz stereo = ~1.5 Mbps
+       # Should be trivial for any network
+       ```
+
+    3. **Check WiFi signal strength**
+       - **Windows**: Settings → Network & Internet → WiFi → Hardware properties
+       - **macOS**: Hold Option, click WiFi icon (RSSI, noise, rate)
+       - **Linux**: `iwconfig` or `nmcli dev wifi`
+
+       | Signal Strength | Quality   | Expected Jitter |
+       | --------------- | --------- | --------------- |
+       | > -50 dBm       | Excellent | &lt;5ms            |
+       | -50 to -60 dBm  | Good      | 5-15ms          |
+       | -60 to -70 dBm  | Fair      | 15-50ms         |
+       | < -70 dBm       | Poor      | >50ms           |
+
+    **Improving network quality**:
+
+    1. **WiFi optimization**
+       - Move closer to access point
+       - Switch to 5GHz band (less interference, shorter range)
+       - Avoid physical obstructions (walls, metal objects)
+       - Change WiFi channel to avoid interference
+       - Update router firmware
+
+    2. **Reduce network congestion**
+       - Pause downloads/uploads during streaming
+       - Enable QoS (Quality of Service) on router
+       - Use DSCP/TOS tagging in TCP Streamer Advanced settings
+       - Prioritize audio traffic over bulk data
+
+    3. **Use wired connection**
+       - Ethernet eliminates WiFi variability
+       - Consistent &lt;1ms jitter typical
+       - Most reliable solution for critical streaming
+
+    <Check>Wired Ethernet should always show "Excellent" network quality. If not, investigate server resource issues or network infrastructure problems.</Check>
+  </Accordion>
+
+  <Accordion title="Bandwidth consumption" icon="gauge">
+    **Symptom**: Concerned about network bandwidth usage or data caps.
+
+    **Calculating bandwidth**:
+
+    ```
+    Bitrate = Sample Rate × Channels × Bits per Sample
+    
+    48 kHz stereo 16-bit:
+    48000 × 2 × 16 = 1,536,000 bits/sec = 1.536 Mbps ≈ 184 KB/sec
+    
+    44.1 kHz stereo 16-bit:
+    44100 × 2 × 16 = 1,411,200 bits/sec = 1.411 Mbps ≈ 169 KB/sec
+    ```
+
+    **Hourly/daily data usage**:
+
+    | Configuration | Per Hour | Per Day (24h) |
+    | ------------- | -------- | ------------- |
+    | 48 kHz        | ~660 MB  | ~15.8 GB      |
+    | 44.1 kHz      | ~609 MB  | ~14.6 GB      |
+
+    **Reducing bandwidth**:
+
+    1. **Enable silence detection**
+       - Stops transmission during silence
+       - Savings depend on content:
+         - Music: 10-20% (brief pauses between tracks)
+         - Podcasts/Audiobooks: 30-50% (pauses between speech)
+         - Variable content: Up to 70%
+
+    2. **Lower sample rate**
+       - 48 kHz → 44.1 kHz saves ~8%
+       - Imperceptible quality difference for most content
+
+    3. **Stream only when needed**
+       - Use auto-stream sparingly
+       - Manually start/stop streaming
+       - Leverage silence detection timeout
+
+    4. **Consider compression (future)**
+       - Current version uses raw PCM (no compression)
+       - Compressed formats (FLAC, Opus) would reduce bandwidth significantly
+       - Not currently supported (would require server-side changes)
+
+    <Info>TCP Streamer shows real-time bitrate and total data sent in the statistics panel. Monitor this to understand your actual bandwidth usage patterns.</Info>
+  </Accordion>
+
+  <Accordion title="Jitter monitoring and analysis" icon="wave-square">
+    **Symptom**: Want to understand jitter patterns and optimize for network conditions.
+
+    **Understanding jitter**:
+
+    Jitter is variation in packet timing. High jitter requires larger buffers to maintain continuous playback.
+
+    **Built-in jitter monitoring**:
+
+    - Real-time jitter display in Advanced tab
+    - Network quality score derived from jitter
+    - Adaptive buffer uses jitter to resize automatically
+
+    **External jitter analysis**:
+
+    ```bash
+    # Measure jitter with ping
+    ping -i 0.2 192.168.1.100  # Ping every 200ms
+    
+    # Use fping for statistics
+    fping -c 100 -p 200 192.168.1.100
+    
+    # Analyze results:
+    # - Min/max/avg latency
+    # - Standard deviation (jitter)
+    # - Packet loss percentage
+    ```
+
+    **Jitter patterns**:
+
+    1. **Steady low jitter (&lt;5ms)**
+       - Wired Ethernet typical
+       - Can use minimum buffer settings
+
+    2. **Steady moderate jitter (5-20ms)**
+       - Good WiFi typical
+       - Use WiFi preset settings
+
+    3. **Variable jitter (spikes to 50ms+)**
+       - WiFi interference or congestion
+       - Enable adaptive buffering
+       - Consider wired connection
+
+    4. **Periodic jitter spikes**
+       - Often caused by background tasks
+       - Identify with system monitoring
+       - Schedule intensive tasks outside streaming hours
+
+    <Tip>The adaptive buffer's 10-second measurement window smooths short jitter spikes. Persistent jitter triggers buffer size increases.</Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Advanced performance tuning
+
+<AccordionGroup>
+  <Accordion title="Precision pacer optimization" icon="stopwatch">
+    **Background**: TCP Streamer v1.7.0+ uses a Token Bucket algorithm with hybrid spin-wait for mathematically perfect audio pacing.
+
+    **How it works**:
+    - Calculates exact time for each audio chunk
+    - Prevents micro-bursts that cause network jitter
+    - Hybrid spin-wait provides sub-millisecond precision
+    - Automatically optimized in v1.7.0+
+
+    **Tuning chunk size (Advanced settings)**:
+
+    | Chunk Size | Updates/sec | CPU Impact | Timing Precision |
+    | ---------- | ----------- | ---------- | ---------------- |
+    | 128        | ~375/sec    | High       | Excellent        |
+    | 256        | ~188/sec    | Medium     | Excellent        |
+    | 512        | ~94/sec     | Low        | Good             |
+    | 1024       | ~47/sec     | Very Low   | Good             |
+    | 2048       | ~23/sec     | Minimal    | Adequate         |
+    | 4096       | ~12/sec     | Minimal    | Adequate         |
+
+    **Recommendations**:
+    - **Low-latency**: 256-512 samples
+    - **Balanced**: 1024 samples (default)
+    - **Low CPU**: 2048-4096 samples
+
+    <Info>The precision pacer automatically prevents network bursts. You typically don't need to adjust chunk size unless optimizing for specific constraints.</Info>
+  </Accordion>
+
+  <Accordion title="DSCP/TOS QoS tagging" icon="tag">
+    **Background**: DSCP (Differentiated Services Code Point) tags packets for Quality of Service priority on routers.
+
+    **Available options in Advanced settings**:
+
+    - **VoIP (EF - Expedited Forwarding)**: Highest priority, low latency
+    - **Low Delay**: High priority for time-sensitive data
+    - **Throughput**: Optimize for high bandwidth
+    - **Default (Best Effort)**: No special priority
+
+    **When to use DSCP**:
+
+    1. **Network congestion**: Other traffic competes with audio stream
+    2. **Shared connections**: Multiple users or devices
+    3. **QoS-enabled router**: Router must respect DSCP tags
+
+    **Limitations**:
+    - Requires router QoS support
+    - May require administrator privileges
+    - ISP may strip DSCP tags at WAN boundary
+    - Only helps on local network unless ISP honors tags
+
+    **Configuration**:
+    1. Enable QoS on router
+    2. Configure DSCP/WMM mapping
+    3. Select "VoIP" or "Low Delay" in TCP Streamer
+    4. Test with network quality monitoring
+
+    <Warning>DSCP tagging is only effective if your router and network infrastructure support QoS. On simple home networks without QoS, it has no effect.</Warning>
+  </Accordion>
+
+  <Accordion title="High priority thread" icon="arrow-up">
+    **Feature**: Elevates audio processing thread priority for reduced latency jitter.
+
+    **Benefits**:
+    - Reduces scheduling delays from OS
+    - Lower jitter in audio callbacks
+    - More consistent timing under system load
+
+    **Drawbacks**:
+    - May impact other applications
+    - Potential for system instability if misconfigured
+    - Higher power consumption (prevents CPU idle states)
+
+    **When to enable**:
+    - System under heavy load during streaming
+    - Other real-time applications competing
+    - Experiencing buffer underruns despite adequate buffer size
+
+    **When NOT to enable**:
+    - System already performs well
+    - Battery-powered devices (laptop streaming on battery)
+    - Shared systems where other applications have priority
+
+    **Testing**:
+    1. Measure performance without high priority
+    2. Enable high priority thread
+    3. Monitor CPU usage and jitter
+    4. Compare audio quality and dropout frequency
+    5. Disable if no improvement or adverse effects
+
+    <Info>Most users don't need high priority thread. Try other optimizations (buffer size, network preset) first.</Info>
+  </Accordion>
+</AccordionGroup>
+
+## Performance checklist
+
+Use this checklist to systematically optimize TCP Streamer performance:
+
+<AccordionGroup>
+  <Accordion title="Basic optimization" icon="list-check">
+    <Check>Using appropriate network preset (Ethernet/WiFi/WiFi Poor)</Check>
+    <Check>Adaptive buffering enabled with appropriate min/max</Check>
+    <Check>Buffer size set to 1024 or higher</Check>
+    <Check>Sample rate matches device native rate</Check>
+    <Check>Silence detection tuned with visual RMS meter</Check>
+    <Check>Auto-reconnect enabled for resilience</Check>
+  </Accordion>
+
+  <Accordion title="Network optimization" icon="network-wired">
+    <Check>Using wired Ethernet if possible</Check>
+    <Check>WiFi signal strength > -60 dBm</Check>
+    <Check>Network quality shows "Good" or "Excellent"</Check>
+    <Check>Jitter consistently < 20ms</Check>
+    <Check>No packet loss to server</Check>
+    <Check>QoS/DSCP configured if network supports it</Check>
+  </Accordion>
+
+  <Accordion title="System optimization" icon="gear">
+    <Check>TCP Streamer updated to latest version</Check>
+    <Check>Audio drivers updated</Check>
+    <Check>No antivirus interference</Check>
+    <Check>Adequate system resources available</Check>
+    <Check>No competing real-time applications</Check>
+    <Check>Power management not throttling CPU</Check>
+  </Accordion>
+</AccordionGroup>
+
+## Benchmarking and monitoring
+
+### Built-in statistics
+
+TCP Streamer provides real-time metrics:
+
+- **Bitrate**: Current data rate (should match calculated rate)
+- **Uptime**: Streaming session duration
+- **Data Sent**: Total bytes transmitted
+- **Network Quality**: Derived from jitter measurements
+- **Jitter**: Real-time network timing variance
+- **Buffer Usage**: Ring buffer fill percentage
+
+### Establishing baseline
+
+1. **Optimal conditions**: Test with wired Ethernet, no load
+2. **Record metrics**: Note CPU usage, jitter, network quality
+3. **Typical conditions**: Test with actual network and load
+4. **Compare**: Identify performance gaps
+5. **Optimize**: Apply settings to close gaps
+
+### Continuous monitoring
+
+For long-term streaming:
+- Check statistics periodically
+- Watch for network quality degradation
+- Monitor activity log for errors
+- Track buffer resize frequency
+- Note any audio quality changes
+
+## Platform-specific performance
+
+For platform-specific optimizations, see:
+
+- [Windows performance](/platforms/windows#performance)
+- [macOS performance](/platforms/macos#performance)
+- [Linux performance](/platforms/linux#performance)
+
+## Getting help
+
+When reporting performance issues, include:
+- Operating system and version
+- TCP Streamer version
+- Hardware specs (CPU, RAM)
+- Network configuration (Ethernet/WiFi, speed)
+- Current settings (buffer sizes, sample rate, etc.)
+- Statistics from UI (CPU%, jitter, network quality)
+- Description of performance problem
+- Steps to reproduce

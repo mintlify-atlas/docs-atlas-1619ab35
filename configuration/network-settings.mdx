@@ -1,0 +1,422 @@
+---
+title: Network Settings
+description: Optimize network transmission with presets, chunk sizes, QoS tagging, and high-priority threading
+---
+
+## Overview
+
+Network settings control how TCP Streamer transmits audio data over the network. Proper configuration ensures stable, low-latency streaming even on challenging network conditions.
+
+## Network Presets
+
+One-click configurations optimized for common network scenarios. Presets automatically adjust multiple settings at once.
+
+<ParamField path="network_preset" type="enum" default="wifi">
+  Pre-configured network optimization profile
+  
+  <Expandable title="Available Presets">
+    - `ethernet`: Stable wired connections
+    - `wifi`: Standard wireless networks
+    - `wifi-poor`: Unstable or distant WiFi
+    - `custom`: Manual configuration
+  </Expandable>
+</ParamField>
+
+### Ethernet (Stable)
+
+Optimized for wired network connections with low jitter.
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| **Ring Buffer** | 2000ms | Low jitter allows smaller buffer |
+| **Chunk Size** | 512 samples | Smaller chunks for lower latency |
+| **Adaptive Min** | 2000ms | Minimum buffer threshold |
+| **Adaptive Max** | 6000ms | Maximum buffer threshold |
+| **Adaptive Buffer** | Enabled | Automatically adjust to conditions |
+
+**Use for**:
+- Computers connected via Ethernet cable
+- Local servers on same subnet
+- Low-latency music streaming
+
+### WiFi (Standard)
+
+Balanced configuration for typical wireless networks.
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| **Ring Buffer** | 4000ms | Handles typical WiFi jitter (10-50ms) |
+| **Chunk Size** | 1024 samples | Balanced throughput and latency |
+| **Adaptive Min** | 3000ms | Room for jitter absorption |
+| **Adaptive Max** | 10000ms | Protection against WiFi congestion |
+| **Adaptive Buffer** | Enabled | Adapts to changing WiFi conditions |
+
+**Use for**:
+- Standard home WiFi networks
+- Multi-room audio setups
+- Typical office environments
+
+### WiFi (Poor Signal)
+
+Maximum stability for challenging wireless environments.
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| **Ring Buffer** | 8000ms | Absorbs high jitter and packet loss |
+| **Chunk Size** | 2048 samples | Larger chunks reduce overhead |
+| **Adaptive Min** | 5000ms | Higher baseline for poor conditions |
+| **Adaptive Max** | 15000ms | Maximum protection against dropouts |
+| **Adaptive Buffer** | Enabled | Responds to severe jitter spikes |
+
+**Use for**:
+- Distant WiFi connections
+- Congested 2.4 GHz networks
+- Buildings with thick walls
+- High interference environments
+
+<Tip>
+Start with **WiFi (Standard)** and upgrade to **WiFi (Poor Signal)** only if you experience frequent dropouts.
+</Tip>
+
+## Chunk Size
+
+The number of audio samples transmitted in each network packet.
+
+<ParamField path="chunk_size" type="integer" default="1024">
+  Network chunk size in samples (128-4096)
+</ParamField>
+
+| Chunk Size | Packet Interval (48 kHz) | Use Case |
+|------------|--------------------------|----------|
+| **128** | 2.7 ms | Minimum latency, high overhead |
+| **256** | 5.3 ms | Very low latency |
+| **512** | 10.7 ms | Low latency, balanced |
+| **1024** | 21.3 ms | Balanced (recommended) |
+| **2048** | 42.7 ms | High stability, lower overhead |
+| **4096** | 85.3 ms | Maximum stability, highest latency |
+
+### How Chunk Size Affects Performance
+
+**Smaller chunks (128-512)**:
+- Lower end-to-end latency
+- More frequent network operations
+- Higher CPU usage
+- More overhead per audio sample
+- Better for real-time applications
+
+**Larger chunks (1024-4096)**:
+- Higher latency
+- Fewer network operations
+- Lower CPU usage
+- Less overhead per sample
+- Better for unreliable networks
+
+### Calculation
+
+```
+Packet Interval (ms) = (chunk_size × 1000) / sample_rate
+
+Example: (1024 × 1000) / 48000 = 21.3 ms
+```
+
+<Warning>
+Extremely small chunk sizes (128-256) can cause excessive CPU usage and network overhead. Use only when ultra-low latency is critical.
+</Warning>
+
+## High-Priority Threading
+
+Boosts the network thread priority for reduced jitter and more consistent timing.
+
+<ParamField path="high_priority" type="boolean" default="false">
+  Enable high-priority scheduling for network thread
+</ParamField>
+
+### How It Works
+
+When enabled, TCP Streamer requests maximum thread priority from the operating system scheduler:
+
+- **Linux/macOS**: `ThreadPriority::Max`
+- **Windows**: High priority class
+
+### Effects
+
+**Benefits**:
+- Reduces scheduling jitter (1-5ms improvement)
+- More consistent packet transmission timing
+- Better performance on loaded systems
+
+**Trade-offs**:
+- Slightly higher system resource usage
+- May require administrator/root privileges
+- Can impact other applications if system is under heavy load
+
+### When to Enable
+
+<Steps>
+  <Step title="Loaded Systems">
+    Enable if your computer runs many background processes
+  </Step>
+  <Step title="Timing Issues">
+    Enable if you see high jitter values (>10ms) in network quality metrics
+  </Step>
+  <Step title="Multi-Room Sync">
+    Enable for time-critical multi-room audio synchronization
+  </Step>
+</Steps>
+
+<Info>
+On most modern systems with adequate CPU, high-priority threading provides minimal benefit. Test with and without to measure the difference.
+</Info>
+
+## DSCP/TOS Tagging
+
+Differentiated Services Code Point (DSCP) marking for Quality of Service (QoS) routing.
+
+<ParamField path="dscp_strategy" type="enum" default="voip">
+  QoS marking strategy for network packets
+  
+  <Expandable title="Available Strategies">
+    - `voip`: Expedited Forwarding (EF) - Highest priority
+    - `lowdelay`: IPTOS_LOWDELAY - Minimize latency
+    - `throughput`: IPTOS_THROUGHPUT - Maximize throughput
+    - `besteffort`: No special marking (default routing)
+  </Expandable>
+</ParamField>
+
+### Strategy Details
+
+#### VoIP (Expedited Forwarding)
+
+- **DSCP Value**: `0xB8` (EF)
+- **Binary**: `101110`
+- **Priority**: Highest
+- **Recommended for**: Real-time audio streaming
+
+```
+Traffic Class: Voice (VoIP)
+Queue Priority: Highest
+Drop Precedence: Low
+```
+
+#### Low Delay
+
+- **TOS Value**: `0x10` (IPTOS_LOWDELAY)
+- **Priority**: High
+- **Recommended for**: Interactive applications
+
+#### Throughput
+
+- **TOS Value**: `0x08` (IPTOS_THROUGHPUT)
+- **Priority**: Medium
+- **Recommended for**: Bulk data transfer
+
+#### Best Effort
+
+- **TOS Value**: `0x00`
+- **Priority**: Normal (default)
+- **Recommended for**: No QoS requirements
+
+### Requirements
+
+<Warning>
+DSCP/TOS tagging only works if:
+
+1. Your router/switches support QoS (most modern routers do)
+2. QoS is configured and enabled on network devices
+3. Your operating system allows setting TOS values (may require privileges)
+
+If QoS is not configured, these settings have no effect.
+</Warning>
+
+### Configuration Example
+
+```json
+{
+  "dscp_strategy": "voip",
+  "high_priority": true,
+  "chunk_size": 1024
+}
+```
+
+## Precision Pacing
+
+TCP Streamer uses a **Token Bucket** algorithm for mathematically perfect transmission timing.
+
+### How It Works
+
+```rust
+// Strict clock-based pacing
+tick_duration = (chunk_size × 1_000_000 μs) / sample_rate
+
+// Example: (1024 × 1_000_000) / 48000 = 21,333 μs = 21.3 ms
+next_tick = current_time + tick_duration
+
+while streaming {
+    wait_until(next_tick);
+    send_chunk();
+    next_tick += tick_duration;
+}
+```
+
+### Benefits
+
+- **Eliminates micro-bursts**: No sudden traffic spikes
+- **Drift-aware**: Compensates for clock drift
+- **Sub-millisecond precision**: Uses spin-loop for accurate timing
+- **Predictable bandwidth**: Constant bitrate transmission
+
+<Info>
+Precision pacing is always enabled and cannot be disabled. It's a core component of TCP Streamer's architecture.
+</Info>
+
+## Connection Management
+
+### TCP Keep-Alive
+
+Automatically enabled for all connections:
+
+```rust
+TcpKeepalive::new()
+    .with_time(5 seconds)      // Start probes after 5s idle
+    .with_interval(2 seconds)  // Send probe every 2s
+```
+
+### Write Timeout
+
+All TCP writes have a **5-second timeout** to prevent zombie connections:
+
+```rust
+stream.set_write_timeout(Some(Duration::from_secs(5)))
+```
+
+If a write operation takes longer than 5 seconds, the connection is terminated and auto-reconnect is triggered.
+
+### Reconnection Strategy
+
+**Exponential backoff with jitter**:
+
+```
+Initial delay: 2 seconds
+Max delay: 60 seconds
+Jitter: ±500ms (prevents thundering herd)
+
+Retry 1: 2s + jitter
+Retry 2: 4s + jitter
+Retry 3: 8s + jitter
+Retry 4: 16s + jitter
+Retry 5: 32s + jitter
+Retry 6+: 60s + jitter
+```
+
+<Tip>
+Exponential backoff prevents connection storms when the server is temporarily unavailable.
+</Tip>
+
+## Real-Time Monitoring
+
+TCP Streamer continuously monitors network quality and displays metrics in the UI.
+
+### Quality Score (0-100)
+
+Calculated every 4 seconds based on:
+
+- **Jitter penalty** (0-50 points): Timing consistency
+  - Target: < 5ms jitter = 0 penalty
+  - Maximum: > 20ms jitter = 50 penalty
+
+- **Buffer penalty** (0-30 points): Buffer usage
+  - Healthy: < 80% usage = 0 penalty
+  - Critical: > 80% usage = max penalty
+
+- **Error penalty** (0-20 points): Connection errors
+  - No errors = 0 penalty
+  - 5+ errors = 20 penalty
+
+### Quality Ratings
+
+| Score | Rating | Description |
+|-------|--------|-------------|
+| **90-100** | Excellent | Perfect conditions |
+| **70-89** | Good | Minor jitter, stable |
+| **50-69** | Fair | Noticeable jitter, may need adjustment |
+| **0-49** | Poor | High jitter, frequent issues |
+
+### Jitter Measurement
+
+Exponential Weighted Moving Average (EWMA) with 10-sample smoothing:
+
+```
+jitter = 0.9 × prev_jitter + 0.1 × current_deviation
+```
+
+<Info>
+If quality drops below 50, TCP Streamer will log a warning and suggest increasing buffer size.
+</Info>
+
+## Performance Optimization
+
+### For Wired Networks
+
+```json
+{
+  "network_preset": "ethernet",
+  "chunk_size": 512,
+  "dscp_strategy": "voip",
+  "high_priority": false
+}
+```
+
+### For WiFi Networks
+
+```json
+{
+  "network_preset": "wifi",
+  "chunk_size": 1024,
+  "dscp_strategy": "voip",
+  "high_priority": true
+}
+```
+
+### For Unstable Connections
+
+```json
+{
+  "network_preset": "wifi-poor",
+  "chunk_size": 2048,
+  "dscp_strategy": "besteffort",
+  "high_priority": true
+}
+```
+
+## Troubleshooting
+
+### High Jitter (>15ms)
+
+**Solutions**:
+- Increase ring buffer duration
+- Increase chunk size
+- Enable high-priority threading
+- Switch to wired connection
+- Reduce other network traffic
+
+### Connection Drops
+
+**Solutions**:
+- Enable auto-reconnect (see [Automation](/configuration/automation))
+- Check firewall settings
+- Verify server is running and accessible
+- Increase write timeout tolerance
+
+### Quality Score Below 50
+
+**Solutions**:
+- Apply **WiFi (Poor Signal)** preset
+- Enable adaptive buffer (see [Advanced Settings](/configuration/advanced))
+- Check for network congestion
+- Move closer to WiFi router
+
+## Related Settings
+
+- [Audio Settings](/configuration/audio-settings) - Configure ring buffer duration
+- [Advanced Settings](/configuration/advanced) - Enable adaptive buffer
+- [Automation](/configuration/automation) - Set up auto-reconnect

@@ -1,80 +1,520 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get streaming audio over TCP in minutes with this step-by-step guide
 ---
 
-## Get started in three steps
+This guide will walk you through the essential steps to start streaming audio from your computer to a TCP server.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+  **Before you begin**: Ensure you have a TCP server ready to receive audio. For this guide, we'll use Snapcast as an example, but any TCP server that accepts raw PCM audio will work.
+</Note>
 
-### Step 1: Set up your local environment
+## Prerequisites
+
+- TCP Streamer installed ([see Installation guide](/installation))
+- A TCP server listening for audio (e.g., Snapcast server on port 4953)
+- For system audio capture:
+  - **Windows**: Built-in WASAPI loopback (speakers/headphones required)
+  - **macOS**: [BlackHole](https://github.com/ExistentialAudio/BlackHole) or similar
+  - **Linux**: PulseAudio monitor
+
+## Step 1: Launch TCP Streamer
+
+Open TCP Streamer from your applications menu or system tray. The application window displays a tabbed interface with four main sections:
+
+- **🎤 Input** - Audio device and capture settings
+- **🌐 Network** - Destination IP, port, and connection settings  
+- **⚙️ Advanced** - Buffer tuning, network optimization, silence detection
+- **📊 Stats** - Real-time streaming statistics and logs
+
+## Step 2: Select Audio Input Device
+
+Navigate to the **🎤 Input** tab and configure your audio source.
+
+<Steps>
+  <Step title="Choose Input Device">
+    Click the **Input Device** dropdown to see all available audio devices. TCP Streamer scans all host APIs (WASAPI, MME, CoreAudio, ALSA) to find every available input.
+
+    **Device Options:**
+    - Microphones (for voice/instrument capture)
+    - Line-in devices
+    - Virtual audio cables (VB-Audio Cable, etc.)
+    - System loopback devices (BlackHole, PulseAudio Monitor)
+  </Step>
+
+  <Step title="Configure Sample Rate">
+    Select your preferred sample rate:
+    - **48 kHz** (recommended) - Modern standard, lower CPU usage
+    - **44.1 kHz** - CD quality, traditional standard
+
+    <Note>
+      Your TCP server must be configured to receive audio at the same sample rate. Snapcast automatically handles this.
+    </Note>
+  </Step>
+
+  <Step title="Set Buffer Size">
+    Choose a buffer size that balances latency and stability:
+    
+    | Buffer Size | Latency | Stability | Use Case |
+    |-------------|---------|-----------|----------|
+    | **256** | Lowest | Lower | Local/wired networks, real-time apps |
+    | **512** | Low | Good | Balanced for most wired setups |
+    | **1024** | Moderate | Better | Recommended for WiFi |
+    | **2048** | Higher | Best | Poor connections, maximum stability |
+
+    Start with **1024** if unsure.
+  </Step>
+</Steps>
+
+### Capturing System Audio
+
+<Tabs>
+  <Tab title="Windows">
+    **Using WASAPI Loopback (Built-in)**
+
+    1. Check **"Enable Loopback (Windows)"** checkbox
+    2. Ensure speakers or headphones are plugged in
+    3. Select your audio output device from the dropdown
+    4. The device name will appear with system audio capability
+
+    <Warning>
+      WASAPI loopback requires an active audio output device connected. If you unplug speakers/headphones, capture will stop.
+    </Warning>
+
+    **Alternative: VB-Audio Cable**
+    1. Install [VB-AUDIO Cable](https://vb-audio.com/Cable/)
+    2. Set system output to "CABLE Input"
+    3. In TCP Streamer, select "CABLE Output" as input device
+  </Tab>
+
+  <Tab title="macOS">
+    **Using BlackHole**
+
+    1. Install BlackHole:
+       ```bash
+       brew install blackhole-2ch
+       ```
+    2. Create Multi-Output Device in **Audio MIDI Setup**:
+       - Applications → Utilities → Audio MIDI Setup
+       - Click "+" → Create Multi-Output Device
+       - Check both your speakers and BlackHole 2ch
+    3. Set Multi-Output Device as system output
+    4. In TCP Streamer, select **BlackHole 2ch** as input
+  </Tab>
+
+  <Tab title="Linux">
+    **Using PulseAudio Monitor**
+
+    1. Start streaming in TCP Streamer (any device for now)
+    2. Open PulseAudio Volume Control:
+       ```bash
+       pavucontrol
+       ```
+    3. Go to **Recording** tab
+    4. Find TCP Streamer and change input to:
+       **Monitor of [Your Output Device]**
+
+    Or select monitor device directly from TCP Streamer dropdown (look for "Monitor of..." entries).
+  </Tab>
+</Tabs>
+
+## Step 3: Configure Network Destination
+
+Navigate to the **🌐 Network** tab.
+
+<Steps>
+  <Step title="Enter Server IP Address">
+    Input the IP address of your TCP server:
+    - **Local server**: `127.0.0.1` or `localhost`
+    - **Network server**: `192.168.1.100` (example)
+    - **Remote server**: Any routable IP address
+  </Step>
+
+  <Step title="Set Port Number">
+    Enter the port your server is listening on:
+    - **Snapcast default**: `4953`
+    - **Custom servers**: Check your server configuration
+
+    Example for Snapcast:
+    ```bash
+    # Snapcast server listening on port 4953
+    IP: 192.168.1.100
+    Port: 4953
+    ```
+  </Step>
+
+  <Step title="Enable Auto-Reconnect (Recommended)">
+    Check **"Auto-reconnect"** to automatically retry connection if the network drops.
+
+    As of v1.9.0, auto-reconnect uses:
+    - Minimum 2-second delay between attempts
+    - Exponential backoff (2s → 4s → 8s → 16s, max 60s)
+    - Random jitter (±500ms) to prevent connection storms
+  </Step>
+</Steps>
+
+### Example Server Configurations
+
+<CodeGroup>
+```bash Snapcast (Default)
+IP: 192.168.1.100
+Port: 4953
+Format: 48000:16:2 (48kHz, 16-bit, stereo)
+```
+
+```bash Custom TCP Server
+IP: 10.0.0.50
+Port: 8000
+Format: Raw PCM, little-endian
+```
+
+```bash Local Testing
+IP: 127.0.0.1
+Port: 9999
+# Use netcat to test: nc -l 9999 > output.raw
+```
+</CodeGroup>
+
+## Step 4: Optimize Settings (Optional)
+
+Navigate to the **⚙️ Advanced** tab for fine-tuning.
+
+### Network Presets
+
+Choose a preset based on your connection:
+
+<Tabs>
+  <Tab title="Ethernet (Wired)">
+    **Recommended for stable wired connections**
+    - Ring Buffer: 2000ms
+    - Chunk Size: 512 samples
+    - Adaptive Buffer: 2000ms - 6000ms
+
+    **Expected latency**: ~2-4 seconds
+  </Tab>
+
+  <Tab title="WiFi (Standard)">
+    **Recommended for most wireless setups**
+    - Ring Buffer: 4000ms
+    - Chunk Size: 1024 samples
+    - Adaptive Buffer: 3000ms - 10000ms
+
+    **Expected latency**: ~4-8 seconds
+  </Tab>
+
+  <Tab title="WiFi (Poor Signal)">
+    **For unstable or far connections**
+    - Ring Buffer: 8000ms
+    - Chunk Size: 2048 samples
+    - Adaptive Buffer: 5000ms - 15000ms
+
+    **Expected latency**: ~8-15 seconds
+  </Tab>
+</Tabs>
+
+<Note>
+  Higher ring buffer values increase latency but provide better stability. For music playback, 4-8 seconds of latency is usually imperceptible in multi-room setups.
+</Note>
+
+### Adaptive Buffer (Recommended)
+
+Enable **Adaptive Buffer** to automatically adjust buffer size based on network jitter:
+
+- Toggle **"Enable Adaptive Buffer"**
+- Set **Min Buffer**: Minimum size (e.g., 2000ms for Ethernet, 4000ms for WiFi)
+- Set **Max Buffer**: Maximum size (e.g., 6000ms for Ethernet, 12000ms for WiFi)
+
+The system checks jitter every 10 seconds and resizes within these bounds.
+
+<Warning>
+  **WASAPI Loopback on Windows** automatically uses larger buffers (8000ms base) due to timing variability. This is normal and prevents stuttering.
+</Warning>
+
+### Silence Detection
+
+Optimize bandwidth by stopping transmission during silence:
+
+1. **Watch the volume meter** while playing audio
+2. Adjust **Silence Threshold** slider just above the noise floor (white line on meter)
+3. Set **Silence Timeout** (e.g., 5 seconds) - stops streaming after this duration of silence
+
+<Note>
+  Silence detection saves bandwidth but won't affect audio quality. Audio resumes instantly when sound is detected.
+</Note>
+
+## Step 5: Start Streaming
+
+Time to go live!
+
+<Steps>
+  <Step title="Click Start Streaming">
+    Click the **"Start Streaming"** button in any tab.
+
+    You should see:
+    - Connection status change to **"Connected"**
+    - Real-time statistics begin updating
+    - Log messages confirming connection
+  </Step>
+
+  <Step title="Monitor Connection">
+    Navigate to **📊 Stats** tab to view:
+    - **Uptime**: Time since streaming started
+    - **Bytes Sent**: Total data transmitted
+    - **Bitrate**: Current streaming rate (kbps)
+    - **Network Quality**: Real-time health score (Excellent/Good/Fair/Poor)
+    - **Buffer Health**: Ring buffer utilization
+    - **Jitter**: Network stability measurement
+  </Step>
+
+  <Step title="Verify Audio">
+    Play audio on your computer and verify:
+    - Volume meter shows activity
+    - Bitrate increases when audio plays
+    - Audio appears on your TCP server (Snapcast, etc.)
+  </Step>
+</Steps>
+
+### Monitoring Real-Time Statistics
+
+The Stats tab provides comprehensive monitoring:
+
+| Metric | Description | Normal Range |
+|--------|-------------|-------------|
+| **Network Quality** | Overall connection health | Excellent/Good |
+| **Jitter** | Network timing variance | < 10ms |
+| **Buffer Health** | Ring buffer utilization | 20-80% |
+| **Bitrate** | Data transmission rate | ~1.5 Mbps @ 48kHz stereo |
+| **Error Count** | Connection errors | 0 |
+
+<Warning>
+  If **Buffer Health** consistently shows >90%, increase ring buffer size. If it shows &lt;10%, you can reduce buffer for lower latency.
+</Warning>
+
+## Step 6: Enable Automation (Optional)
+
+For set-and-forget operation:
+
+<Steps>
+  <Step title="Enable Auto-start on Launch">
+    Check **"Auto-start on launch"** to run TCP Streamer when your system boots.
+
+    - **Windows**: Creates a startup shortcut
+    - **macOS**: Installs LaunchAgent
+    - **Linux**: Creates systemd user service or autostart entry
+
+    When auto-started, TCP Streamer launches minimized to system tray.
+  </Step>
+
+  <Step title="Enable Auto-stream">
+    Check **"Auto-stream"** to begin streaming immediately after application starts.
+
+    Perfect for dedicated streaming computers that should always be online.
+  </Step>
+
+  <Step title="Minimize to Tray">
+    Close the main window - TCP Streamer continues running in the system tray.
+
+    **To access later**:
+    - Click the tray icon
+    - Or right-click → "Show Settings"
+  </Step>
+</Steps>
+
+## Saving Configuration Profiles
+
+Save different configurations for various scenarios:
+
+<Steps>
+  <Step title="Configure Your Settings">
+    Set up all your preferred settings (device, IP, port, buffers, etc.)
+  </Step>
+
+  <Step title="Create New Profile">
+    1. Click **➕ New** in the profile section
+    2. Enter a descriptive name (e.g., "Home-Snapcast", "Studio-WiFi")
+    3. Click **✓ Create**
+  </Step>
+
+  <Step title="Save Settings to Profile">
+    Click **💾 Save** to store current settings to the selected profile
+  </Step>
+
+  <Step title="Switch Between Profiles">
+    Select different profiles from the dropdown to instantly load saved configurations
+  </Step>
+</Steps>
+
+**Example Profiles:**
+
+```
+📁 Home-Snapcast
+   └─ 192.168.1.100:4953, 48kHz, WiFi preset, Auto-reconnect ON
+
+📁 Studio-Monitor  
+   └─ 10.0.0.50:8000, 44.1kHz, Ethernet preset, High priority ON
+
+📁 Testing
+   └─ localhost:9999, 48kHz, Small buffers, Auto-reconnect OFF
+```
+
+<Note>
+  The "Default" profile cannot be deleted and serves as your fallback configuration.
+</Note>
+
+## Testing Your Setup
+
+### Quick Test with Netcat
+
+Before setting up a full server, test with netcat:
+
+<CodeGroup>
+```bash Server (Listen)
+# Start a TCP listener on port 9999
+nc -l 9999 > captured_audio.raw
+```
+
+```bash TCP Streamer Config
+IP: 127.0.0.1
+Port: 9999
+Sample Rate: 48000 Hz
+```
+
+```bash Playback (After Capture)
+# Play captured audio with ffplay
+ffplay -f s16le -ar 48000 -ac 2 captured_audio.raw
+```
+</CodeGroup>
+
+### Verifying Audio Format
+
+TCP Streamer sends raw PCM with these specifications:
+- **Format**: Signed 16-bit little-endian (s16le)
+- **Sample Rate**: 44100 or 48000 Hz (as configured)
+- **Channels**: 2 (stereo)
+- **Bitrate**: ~1.4 Mbps (44.1kHz) or ~1.5 Mbps (48kHz)
+
+## Troubleshooting
+
+### Cannot Connect to Server
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Connection Refused">
+    **Cause**: Server is not running or not listening on specified port
+
+    **Solution**:
+    - Verify server is running: `netstat -an | grep 4953` (Linux/macOS)
+    - Check firewall allows connections on the port
+    - Try `telnet 192.168.1.100 4953` to test connectivity
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="Connection Timeout">
+    **Cause**: Network routing issue or wrong IP address
+
+    **Solution**:
+    - Verify IP address: `ping 192.168.1.100`
+    - Check if server is on same network/VLAN
+    - Try using server hostname instead of IP
+  </Accordion>
+
+  <Accordion title="Firewall Blocking">
+    **Cause**: Firewall on client or server blocking TCP connection
+
+    **Solution**:
+    - **Windows**: Allow TCP Streamer in Windows Firewall
+    - **macOS**: System Settings → Network → Firewall → Allow TCP Streamer
+    - **Linux**: `sudo ufw allow out 4953/tcp` (if using ufw)
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+### No Audio Being Sent
 
 <AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Accordion title="Silence Detection Active">
+    **Cause**: No audio playing or threshold set too high
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    **Solution**:
+    - Play audio on your computer
+    - Check volume meter shows activity
+    - Lower silence threshold slider
+    - Temporarily disable silence detection to test
+  </Accordion>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
+  <Accordion title="Wrong Input Device">
+    **Cause**: Selected device is not capturing audio
+
+    **Solution**:
+    - Try different input device from dropdown
+    - For system audio, verify loopback/monitor device is set up
+    - Check device is not muted in system settings
+  </Accordion>
+
+  <Accordion title="Permission Denied">
+    **Cause**: Application lacks microphone permissions
+
+    **Solution**:
+    - Grant microphone access in system settings
+    - **macOS**: System Settings → Privacy & Security → Microphone
+    - **Windows**: Settings → Privacy → Microphone
+    - Restart TCP Streamer after granting permissions
   </Accordion>
 </AccordionGroup>
 
-### Step 3: Go live
+### Audio Stuttering or Dropouts
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+<AccordionGroup>
+  <Accordion title="Buffer Underrun">
+    **Cause**: Ring buffer too small for network conditions
 
-## Next steps
+    **Solution**:
+    - Increase ring buffer size (try 6000ms or 8000ms)
+    - Enable Adaptive Buffer with higher max (e.g., 12000ms)
+    - Use WiFi (Poor) preset if on wireless
+    - Check Stats tab for "Buffer Health" - should be 20-80%
+  </Accordion>
 
-Now that you have your docs running, explore these key features:
+  <Accordion title="High Network Jitter">
+    **Cause**: Unstable network connection
+
+    **Solution**:
+    - Switch to wired connection if possible
+    - Increase chunk size (try 2048)
+    - Enable High Priority Thread option
+    - Check Stats tab - jitter should be &lt;10ms
+  </Accordion>
+
+  <Accordion title="WASAPI Loopback Specific (Windows)">
+    **Cause**: WASAPI loopback is more sensitive than VB-Audio Cable
+
+    **Solution**:
+    - Application automatically uses 8000ms buffer for WASAPI
+    - Enable Adaptive Buffer (4000-12000ms range)
+    - Ensure speakers/headphones remain connected
+    - Consider using VB-Audio Cable for more stability
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that you're streaming successfully:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Configuration Guide" icon="sliders" href="/configuration">
+    Deep dive into advanced settings, profiles, and optimization
+  </Card>
+  
+  <Card title="Snapcast Integration" icon="music" href="/integrations/snapcast">
+    Learn how to set up multi-room audio with Snapcast
+  </Card>
+  
+  <Card title="Troubleshooting" icon="wrench" href="/troubleshooting">
+    Comprehensive solutions for common issues
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Technical details and Tauri command reference
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Pro Tip**: Create multiple profiles for different scenarios (home, work, testing) and use auto-reconnect for unattended operation. TCP Streamer is designed to run 24/7 with minimal intervention.
 </Note>

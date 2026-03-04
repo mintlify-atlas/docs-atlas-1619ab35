@@ -1,0 +1,229 @@
+---
+title: Events
+description: Real-time events emitted by TCP Streamer during audio streaming
+---
+
+TCP Streamer emits several events during stream operation to provide real-time feedback on logging, statistics, quality metrics, and buffer adjustments.
+
+## Event Overview
+
+All events are emitted via Tauri's event system and can be listened to from the frontend using `appWindow.listen()`.
+
+```typescript
+import { appWindow } from '@tauri-apps/api/window';
+
+appWindow.listen('log-event', (event) => {
+  console.log(event.payload);
+});
+```
+
+---
+
+## log-event
+
+Emitted for application logs with rate limiting (maximum 5 per second).
+
+### Payload Structure
+
+```rust
+struct LogEvent {
+  timestamp: String,
+  level: String,
+  message: String,
+}
+```
+
+<ResponseField name="timestamp" type="string">
+  Log timestamp in `HH:MM:SS` format (local time).
+</ResponseField>
+
+<ResponseField name="level" type="string">
+  Log level. Possible values:
+  - `"error"` - Critical errors
+  - `"warning"` - Warnings and recoverable issues
+  - `"info"` - General information
+  - `"debug"` - Detailed debugging information
+  - `"trace"` - Verbose tracing (rarely used)
+  - `"success"` - Success notifications (mapped to info in logs)
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  The log message content.
+</ResponseField>
+
+### Example Payload
+
+```json
+{
+  "timestamp": "14:32:45",
+  "level": "info",
+  "message": "Starting stream to 192.168.1.100:5000"
+}
+```
+
+### Rate Limiting
+
+Only the first 5 log events per second are emitted to the frontend. All logs are still written to the standard logger (terminal/file) without rate limiting.
+
+---
+
+## stats-event
+
+Emitted every 2 seconds with streaming statistics.
+
+### Payload Structure
+
+```rust
+struct StatsEvent {
+  uptime_seconds: u64,
+  bytes_sent: u64,
+  bitrate_kbps: f64,
+}
+```
+
+<ResponseField name="uptime_seconds" type="u64">
+  Total stream uptime in seconds since `start_stream()` was called.
+</ResponseField>
+
+<ResponseField name="bytes_sent" type="u64">
+  Total number of bytes transmitted over the network.
+</ResponseField>
+
+<ResponseField name="bitrate_kbps" type="f64">
+  Average bitrate in kilobits per second, calculated as `(bytes_sent * 8) / (uptime_seconds * 1000)`. Returns `0.0` if uptime is 0.
+</ResponseField>
+
+### Example Payload
+
+```json
+{
+  "uptime_seconds": 125,
+  "bytes_sent": 24576000,
+  "bitrate_kbps": 1572.864
+}
+```
+
+### Emission Frequency
+
+Every 2 seconds, regardless of stream state (will emit zeros if disconnected).
+
+---
+
+## quality-event
+
+Emitted every 4 seconds with stream quality metrics.
+
+### Payload Structure
+
+```rust
+struct QualityEvent {
+  score: u8,
+  jitter: f32,
+  avg_latency: f32,
+  buffer_health: f32,
+  error_count: u64,
+}
+```
+
+<ResponseField name="score" type="u8">
+  Overall quality score (0-100). Calculated using penalties:
+  - **Jitter penalty** (0-50): Based on `jitter` value. Target &lt;5ms = 0 penalty, >20ms = max penalty
+  - **Buffer penalty** (0-30): Based on buffer usage. >80% = max penalty, &lt;50% = no penalty
+  - **Error penalty** (0-20): Based on consecutive errors. >5 errors = max penalty
+  
+  Formula: `100 - (jitter_penalty + buffer_penalty + error_penalty)`
+</ResponseField>
+
+<ResponseField name="jitter" type="f32">
+  Network jitter in milliseconds (EWMA with alpha=0.1). Measures timing deviation from expected send schedule.
+</ResponseField>
+
+<ResponseField name="avg_latency" type="f32">
+  Average TCP write latency in milliseconds, calculated from the last 100 samples.
+</ResponseField>
+
+<ResponseField name="buffer_health" type="f32">
+  Buffer health ratio (0.0-1.0). Calculated as `1.0 - (occupied / capacity)`. Higher values indicate more available buffer space.
+</ResponseField>
+
+<ResponseField name="error_count" type="u64">
+  Number of consecutive connection errors encountered.
+</ResponseField>
+
+### Example Payload
+
+```json
+{
+  "score": 92,
+  "jitter": 3.2,
+  "avg_latency": 1.8,
+  "buffer_health": 0.75,
+  "error_count": 0
+}
+```
+
+### Interpretation
+
+- **Score 90-100**: Excellent quality
+- **Score 70-89**: Good quality
+- **Score 50-69**: Acceptable quality with some issues
+- **Score &lt;50**: Poor quality, investigate network/buffer issues
+
+---
+
+## buffer-resize-event
+
+Emitted when adaptive buffering changes the target buffer size (only if `enable_adaptive_buffer` is true).
+
+### Payload Structure
+
+```rust
+struct BufferResizeEvent {
+  new_size_ms: u32,
+  reason: String,
+}
+```
+
+<ResponseField name="new_size_ms" type="u32">
+  New target buffer duration in milliseconds.
+</ResponseField>
+
+<ResponseField name="reason" type="string">
+  Human-readable explanation for the resize. Examples:
+  - `"Increased due to high jitter (18.5ms)"`
+  - `"Decreased due to low jitter (2.1ms)"`
+</ResponseField>
+
+### Example Payload
+
+```json
+{
+  "new_size_ms": 6500,
+  "reason": "Increased due to high jitter (16.2ms)"
+}
+```
+
+### Trigger Conditions
+
+- Checked every 10 seconds when adaptive buffering is enabled
+- Only emits if size change exceeds 10% of current buffer size
+- Adjusts based on jitter:
+  - Jitter &lt;5ms → Use minimum buffer size
+  - Jitter 5-15ms → Scale linearly between min and max
+  - Jitter >15ms → Use maximum buffer size
+
+### Buffer Ranges
+
+- **Standard input**: 2000-6000ms (adjusted by `min_buffer_ms`/`max_buffer_ms`)
+- **WASAPI loopback**: 4000-12000ms (adjusted by `min_buffer_ms`/`max_buffer_ms`)
+
+---
+
+## Event Timing Summary
+
+| Event | Frequency | Rate Limited |
+|-------|-----------|-------------|
+| `log-event` | As needed | Yes (5/sec) |
+| `stats-event` | Every 2s | No |
+| `quality-event` | Every 4s | No |
+| `buffer-resize-event` | When changed (checked every 10s) | No |
